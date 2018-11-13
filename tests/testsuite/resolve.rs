@@ -148,8 +148,8 @@ proptest! {
     /// NOTE: if you think this test has failed spuriously see the note at the top of this macro.
     #[test]
     fn limited_independence_of_irrelevant_alternatives(
+        indexes_to_unpublish in collection::vec(any::<prop::sample::Index>(), 1..=10),
         PrettyPrintRegistry(input) in registry_strategy(50, 20, 60),
-        indexes_to_unpublish in collection::vec(any::<prop::sample::Index>(), ..10)
     )  {
         let reg = registry(input.clone());
         // there is only a small chance that any one
@@ -363,6 +363,39 @@ fn public_dependency_skiping_in_backtracking() {
     let reg = registry(input.clone());
 
     resolve(&pkg_id("root"), vec![dep("C")], &reg).unwrap();
+}
+
+#[test]
+fn public_dependency_backtracking_just_on_activation() {
+    // The critical difference between a solution and not is whether "d" directly depends on "a v0.3" or "a v0.2".
+    // Confusingly, in ether case "a v0.3" will be in the graph, to satisfy "c"'s dependency.
+    // A backtracking algorithm that only looks at what packages are active may have a hard time
+    // noticing that the problem has ben fixed even though "a v0.3" is still active.
+    let input = vec![
+        pkg!(("a", "0.2.0")),
+        pkg!(("a", "0.3.0")),
+        pkg!(("a", "0.3.1") => [dep("bad"),]),
+        pkg!(("b", "1.0.0") => [dep("bad"),]),
+        pkg!(("b", "1.0.1") => [dep_req_kind("a", "0.2", Kind::Normal, true),]),
+        pkg!(("b", "1.1.0") => [dep("bad"),]),
+        pkg!("c" => [dep_req("a", "0.3.0"),]),
+        pkg!("d" => [dep_req("a", "<= 0.3.0"),dep("b"),dep("c"),]),
+    ];
+    let reg = registry(input.clone());
+
+    assert!(resolve_and_validated(&pkg_id("root"), vec![dep("d")], &reg).is_ok());
+
+    let package_to_yank = ("b", "1.1.0").to_pkgid();
+    let new_reg = registry(
+        input
+            .iter()
+            .cloned()
+            .filter(|x| package_to_yank != x.package_id())
+            .collect(),
+    );
+    assert_eq!(input.len(), new_reg.len() + 1);
+    // it should still build
+    assert!(resolve_and_validated(&pkg_id("root"), vec![dep("d")], &new_reg).is_ok());
 }
 
 #[test]
