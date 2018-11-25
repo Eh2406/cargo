@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 // "ensure" seems to require "bail" be in scope (macro hygiene issue?).
@@ -170,10 +170,14 @@ impl Context {
         parent: Option<PackageId>,
         conflicting_activations: &ConflictMap,
     ) -> bool {
+        if let Some(parent) = parent {
+            if !self.is_active(parent) {
+                return false;
+            }
+        }
         conflicting_activations
-            .keys()
-            .chain(parent.as_ref())
-            .all(|&id| self.is_active(id))
+            .iter()
+            .all(|(id, reason)| reason.still_applies(*id, self))
     }
 
     /// Returns all dependencies and the features we want from them.
@@ -303,6 +307,42 @@ impl Context {
             cur = &node.1;
         }
         graph
+    }
+
+    /// Resolves one of the paths from a given node down to the second node
+    pub fn pub_parents_path_from_to(
+        &self,
+        start: PackageId,
+        end: PackageId,
+    ) -> Option<Vec<PackageId>> {
+        if start == end {
+            return Some(vec![start]);
+        }
+        let mut queue = VecDeque::new();
+        queue.push_back(vec![start]);
+        let mut seen = HashSet::new();
+        while let Some(list) = queue.pop_front() {
+            let p = list.last().unwrap();
+            for (o, d) in self.parents.edges(p) {
+                let is_pub = d.iter().any(|x| x.is_public());
+                if !is_pub {
+                    if *o == end {
+                        let mut new_list = list.clone();
+                        new_list.push(*o);
+                        return Some(new_list);
+                    }
+                } else if seen.insert(*o) {
+                    // TODO: the clone below is done a lot
+                    let mut new_list = list.clone();
+                    new_list.push(*o);
+                    if *o == end {
+                        return Some(new_list);
+                    }
+                    queue.push_back(new_list);
+                }
+            }
+        }
+        None
     }
 }
 

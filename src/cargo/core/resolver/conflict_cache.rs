@@ -13,7 +13,7 @@ enum ConflictStoreTrie {
     Leaf(ConflictMap),
     /// A map from an element to a subtrie where
     /// all the sets in the subtrie contains that element.
-    Node(BTreeMap<PackageId, ConflictStoreTrie>),
+    Node(BTreeMap<(PackageId, ConflictReason), ConflictStoreTrie>),
 }
 
 impl ConflictStoreTrie {
@@ -27,7 +27,7 @@ impl ConflictStoreTrie {
         match self {
             ConflictStoreTrie::Leaf(c) => {
                 if must_contain.is_none() {
-                    // `is_conflicting` checks that all the elements are active,
+                    // `is_conflicting` checks that all the reason still applies,
                     // but we have checked each one by the recursion of this function.
                     debug_assert!(cx.is_conflicting(None, c));
                     Some(c)
@@ -37,14 +37,16 @@ impl ConflictStoreTrie {
                 }
             }
             ConflictStoreTrie::Node(m) => {
-                for (&pid, store) in must_contain
-                    .map(|f| m.range(..=f))
+                for ((pid, reason), store) in must_contain
+                    .map(|f| {
+                        m.range(..=(f, ConflictReason::PaddingThatIsLargerThenTheOtherVariant))
+                    })
                     .unwrap_or_else(|| m.range(..))
                 {
                     // If the key is active, then we need to check all of the corresponding subtrie.
-                    if cx.is_active(pid) {
+                    if reason.still_applies(*pid, cx) {
                         if let Some(o) =
-                            store.find_conflicting(cx, must_contain.filter(|&f| f != pid))
+                            store.find_conflicting(cx, must_contain.filter(|f| f != pid))
                         {
                             return Some(o);
                         }
@@ -57,10 +59,14 @@ impl ConflictStoreTrie {
         }
     }
 
-    fn insert(&mut self, mut iter: impl Iterator<Item = PackageId>, con: ConflictMap) {
-        if let Some(pid) = iter.next() {
+    fn insert<'a>(
+        &mut self,
+        mut iter: impl Iterator<Item = (&'a PackageId, &'a ConflictReason)>,
+        con: ConflictMap,
+    ) {
+        if let Some((pid, reason)) = iter.next() {
             if let ConflictStoreTrie::Node(p) = self {
-                p.entry(pid)
+                p.entry((*pid, reason.clone()))
                     .or_insert_with(|| ConflictStoreTrie::Node(BTreeMap::new()))
                     .insert(iter, con);
             }
@@ -165,15 +171,10 @@ impl ConflictCache {
     /// `dep` is known to be unresolvable if
     /// all the `PackageId` entries are activated.
     pub fn insert(&mut self, dep: &Dependency, con: &ConflictMap) {
-        if con.values().any(|c| *c == ConflictReason::PublicDependency) {
-            // TODO: needs more info for back jumping
-            // for now refuse to cache it.
-            return;
-        }
         self.con_from_dep
             .entry(dep.clone())
             .or_insert_with(|| ConflictStoreTrie::Node(BTreeMap::new()))
-            .insert(con.keys().cloned(), con.clone());
+            .insert(con.iter(), con.clone());
 
         trace!(
             "{} = \"{}\" adding a skip {:?}",

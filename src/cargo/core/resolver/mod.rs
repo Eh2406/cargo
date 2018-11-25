@@ -819,7 +819,24 @@ impl RemainingCandidates {
                             if o.0 != t {
                                 // the (transitive) parent can already see a different version by `t`s name.
                                 // So, adding `b` will cause `p` to have a public dependency conflict on `t`.
-                                conflicting_prev_active.insert(p, ConflictReason::PublicDependency);
+                                for i in cx.pub_parents_path_from_to(o.0, p).unwrap().windows(2) {
+                                conflicting_prev_active
+                                    .insert(i[0], ConflictReason::PublicDependency(i[1]));
+                            }
+                            for i in cx.pub_parents_path_from_to(parent, p).unwrap().windows(2) {
+                                conflicting_prev_active
+                                    .insert(i[0], ConflictReason::PublicDependency(i[1]));
+                            }
+                            if t != b.summary.package_id() {
+                                for i in cx
+                                    .pub_parents_path_from_to(t, b.summary.package_id())
+                                    .unwrap()
+                                    .windows(2)
+                                {
+                                    conflicting_prev_active
+                                        .insert(i[0], ConflictReason::PublicDependency(i[1]));
+                                }
+                            }
                                 continue 'main;
                             }
                         }
@@ -914,9 +931,6 @@ fn find_candidate(
         // If we had a PublicDependency conflict, then we do not yet have a compact way to
         // represent all the parts of the problem, so `conflicting_activations` is incomplete.
         if !backtracked
-            && !conflicting_activations
-                .values()
-                .any(|c| *c == ConflictReason::PublicDependency)
             && frame
                 .context
                 .is_conflicting(Some(parent.package_id()), conflicting_activations)

@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use log::debug;
 
 use crate::core::interning::InternedString;
+use crate::core::resolver::context::Context;
 use crate::core::{Dependency, PackageId, PackageIdSpec, Registry, Summary};
 use crate::util::errors::CargoResult;
 use crate::util::Config;
@@ -386,7 +387,7 @@ pub type DepInfo = (Dependency, Rc<Vec<Candidate>>, Rc<Vec<InternedString>>);
 /// We maintain a list of conflicts for error reporting as well as backtracking
 /// purposes. Each reason here is why candidates may be rejected or why we may
 /// fail to resolve a dependency.
-#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub enum ConflictReason {
     /// There was a semver conflict, for example we tried to activate a package
     /// 1.0.2 but 1.1.0 was already activated (aka a compatible semver version
@@ -406,10 +407,22 @@ pub enum ConflictReason {
     // TODO: needs more info for errors maneges
     // TODO: needs more info for back jumping
     /// pub dep errore
-    PublicDependency,
+    PublicDependency(PackageId),
+
+    PaddingThatIsLargerThenTheOtherVariant,
 }
 
 impl ConflictReason {
+    pub fn still_applies(&self, from: PackageId, cx: &Context) -> bool {
+        if !cx.is_active(from) {
+            return false;
+        }
+        if let ConflictReason::PublicDependency(p) = self {
+            return cx.is_active(*p) && cx.parents.edge(&from, p).is_some();
+        }
+        true
+    }
+
     pub fn is_links(&self) -> bool {
         if let ConflictReason::Links(_) = *self {
             return true;
