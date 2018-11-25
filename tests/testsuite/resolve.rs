@@ -399,6 +399,67 @@ fn public_dependency_backtracking_just_on_activation() {
 }
 
 #[test]
+fn public_dependency_backtracking_just_on_activation_2() {
+    // The problem is caused by the paths `I => H => D` and `I => D` having to match.
+    // However, `D` was previously activated by `I => G => E => D`.
+    // A activation algorithm that assumes that activation is idempotent may have a hard time
+    // noticing that it needs to short circuit at `H => D`.
+    let input = vec![
+        pkg!(("A", "0.0.0")),
+        pkg!(("A", "0.0.1")),
+        pkg!(("A", "0.0.2")),
+        pkg!(("B", "0.0.0")),
+        pkg!(("B", "0.0.1")),
+        pkg!(("B", "0.0.2")),
+        pkg!(("C", "0.0.0") => [
+            dep("A"),
+        ]),
+        pkg!(("C", "0.0.1")),
+        pkg!(("C", "0.0.2")),
+        pkg!(("D", "0.0.1") => [
+            dep_req_kind("B", "*", Kind::Normal, true),
+        ]),
+        pkg!(("D", "0.0.3")),
+        pkg!(("D", "0.0.9")),
+        pkg!(("D", "0.0.12")),
+        pkg!(("D", "0.0.13") => [
+            dep("C"),
+        ]),
+        pkg!(("D", "0.0.15") => [
+            dep("A"),
+        ]),
+        pkg!(("D", "0.0.17")),
+        pkg!("E" => [
+            dep_req_kind("C", "*", Kind::Normal, true),
+            dep_req("D", "= 0.0.13"),
+        ]),
+        pkg!("F" => [
+            dep_req("D", "<= 0.0.9"),
+        ]),
+        pkg!("G" => [
+            dep_req_kind("B", "*", Kind::Normal, true),
+            dep_req_kind("D", ">= 0.0.13, <= 0.0.15", Kind::Normal, true),
+            dep("E"),
+        ]),
+        pkg!("H" => [
+            dep_req_kind("D", ">= 0.0.12", Kind::Normal, true),
+            dep("G"),
+        ]),
+        pkg!("I" => [
+            dep("A"),
+            dep("B"),
+            dep("C"),
+            dep_req("D", "<= 0.0.13"),
+            dep("F"),
+            dep("H"),
+        ]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(&pkg_id("root"), vec![dep("I")], &reg);
+}
+
+#[test]
 #[should_panic(expected = "assertion failed: !name.is_empty()")]
 fn test_dependency_with_empty_name() {
     // Bug 5229, dependency-names must not be empty
