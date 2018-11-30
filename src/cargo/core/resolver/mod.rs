@@ -396,8 +396,10 @@ fn activate_deps_loop(
                 // and we're almost ready to move on. We may want to scrap this
                 // frame in the end if it looks like it's not going to end well,
                 // so figure that out here.
-                Ok(Some((mut frame, dur))) => {
-                    printed.elapsed(dur);
+                Ok(newly_activated) => {
+                    if let Some((_, dur)) = &newly_activated {
+                        printed.elapsed(*dur);
+                    }
 
                     // Our `frame` here is a new package with its own list of
                     // dependencies. Do a sanity check here of all those
@@ -414,30 +416,32 @@ fn activate_deps_loop(
                     // ourselves can't be activated, so we know that they
                     // conflict with us.
                     let mut has_past_conflicting_dep = just_here_for_the_error_messages;
-                    if !has_past_conflicting_dep {
-                        if let Some(conflicting) = frame
-                            .remaining_siblings
-                            .clone()
-                            .filter_map(|(_, (ref new_dep, _, _))| {
-                                past_conflicting_activations.conflicting(&cx, new_dep)
-                            })
-                            .next()
-                        {
-                            // If one of our deps is known unresolvable
-                            // then we will not succeed.
-                            // How ever if we are part of the reason that
-                            // one of our deps conflicts then
-                            // we can make a stronger statement
-                            // because we will definitely be activated when
-                            // we try our dep.
-                            conflicting_activations.extend(
-                                conflicting
-                                    .iter()
-                                    .filter(|&(p, _)| p != &pid)
-                                    .map(|(&p, r)| (p, r.clone())),
-                            );
+                    if let Some((frame, _)) = &newly_activated {
+                        if !has_past_conflicting_dep {
+                            if let Some(conflicting) = frame
+                                .remaining_siblings
+                                .clone()
+                                .filter_map(|(_, (ref new_dep, _, _))| {
+                                    past_conflicting_activations.conflicting(&cx, new_dep)
+                                })
+                                .next()
+                            {
+                                // If one of our deps is known unresolvable
+                                // then we will not succeed.
+                                // How ever if we are part of the reason that
+                                // one of our deps conflicts then
+                                // we can make a stronger statement
+                                // because we will definitely be activated when
+                                // we try our dep.
+                                conflicting_activations.extend(
+                                    conflicting
+                                        .iter()
+                                        .filter(|&(p, _)| p != &pid)
+                                        .map(|(&p, r)| (p, r.clone())),
+                                );
 
-                            has_past_conflicting_dep = true;
+                                has_past_conflicting_dep = true;
+                            }
                         }
                     }
                     // If any of `remaining_deps` are known unresolvable with
@@ -526,9 +530,11 @@ fn activate_deps_loop(
                     // Otherwise we're guaranteed to fail and were not here for
                     // error messages, so we skip work and don't push anything
                     // onto our stack.
-                    frame.just_for_error_messages = has_past_conflicting_dep;
                     if !has_past_conflicting_dep || activate_for_error_message {
-                        remaining_deps.push(frame);
+                        if let Some((mut frame, _)) = newly_activated {
+                            frame.just_for_error_messages = has_past_conflicting_dep;
+                            remaining_deps.push(frame);
+                        }
                         true
                     } else {
                         trace!(
@@ -541,10 +547,6 @@ fn activate_deps_loop(
                         false
                     }
                 }
-
-                // This candidate's already activated, so there's no extra work
-                // for us to do. Let's keep going.
-                Ok(None) => true,
 
                 // We failed with a super fatal error (like a network error), so
                 // bail out as quickly as possible as we can't reliably
