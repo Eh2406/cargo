@@ -460,6 +460,153 @@ fn public_dependency_backtracking_just_on_activation_2() {
 }
 
 #[test]
+fn public_dependency_cant_just_copy_conflict_reason() {
+    let input = vec![
+        pkg!(("A", "0.0.0")),
+        pkg!(("A", "0.0.1")),
+        pkg!(("A", "0.0.2")),
+        pkg!(("A", "0.0.3")),
+        pkg!(("A", "0.0.4")),
+        pkg!(("A", "0.0.5")),
+        pkg!(("B", "0.0.0")),
+        pkg!(("B", "0.0.1") => [
+            dep_req_kind("A", ">= 0.0.1", Kind::Normal, true),]),
+        pkg!(("C", "0.0.0")),
+        pkg!(("C", "0.0.1")),
+        pkg!(("C", "0.0.2")),
+        pkg!(("C", "0.0.3")),
+        pkg!(("C", "0.0.4") => [
+            dep_req_kind("A", "<= 0.0.2", Kind::Normal, true),]),
+        pkg!(("C", "0.0.5")),
+        pkg!(("C", "0.0.6")),
+        pkg!(("C", "0.0.7") => [
+            dep_req_kind("B", "*", Kind::Normal, true),]),
+        pkg!(("C", "0.0.9") => [
+            dep_req_kind("B", "*", Kind::Normal,true),]),
+        pkg!(("D", "0.0.0") => [
+            dep_req("A", ">= 0.0.1"),
+        ]),
+        pkg!(("D", "0.0.1") => [
+            dep_req("C", ">= 0.0.3, <= 0.0.7"),]),
+        pkg!(("E", "0.0.0") => [
+            dep_req_kind("C", ">= 0.0.2, <= 0.0.7",Kind::Normal, false),
+        ]),
+        pkg!(("E", "0.0.1") => [
+            dep_req("D", "*"),]),
+        pkg!("F" => [
+            dep_req_kind("C", ">= 0.0.2, <= 0.0.5", Kind::Normal, true),
+            dep_req_kind("E", "*", Kind::Normal, true),]),
+        pkg!(("G", "0.0.0")),
+        pkg!(("G", "0.0.1") => [
+            dep_req_kind("B", "*", Kind::Normal, true),
+        ]),
+        pkg!(("G", "0.0.2") => [
+            dep_req_kind("F", "*", Kind::Normal, true),]),
+        pkg!(("G", "0.0.3") => [
+            dep_req("A", ">= 0.0.1, <= 0.0.4"),]),
+        pkg!("H" => [
+            dep_req("C", ">= 0.0.5"),
+            dep("G"),]),
+        pkg!(("I", "0.0.0") => [dep("bad"),]),
+        pkg!(("I", "0.0.1") =>[
+            dep_req("C", "<= 0.0.1"),
+            dep_req_kind("G", "=0.0.2", Kind::Normal, true),
+        ]),
+        pkg!(("I", "0.0.2") => [dep("bad"),]),
+        pkg!(("I", "0.0.3") => [dep("bad"),]),
+        pkg!(("I", "0.0.4") => [dep("bad"),]),
+        pkg!(("I", "0.0.5") => [dep("bad"),]),
+        pkg!(("I", "0.0.6") => [dep("bad"),]),
+        pkg!("J" => [
+            dep_req_kind("C", "<= 0.0.6", Kind::Normal, true),
+            dep_req_kind("F", "*", Kind::Normal, true),
+            dep_req_kind("H", "*", Kind::Normal, true),
+            dep("I"),]),
+    ];
+    let reg = registry(input.clone());
+    let _ = resolve_and_validated(&pkg_id("root"), vec![dep("J")], &reg);
+}
+
+#[test]
+fn public_dependency_slow_case() {
+    let input = vec![
+        pkg!(("A", "0.0.6")),
+        pkg!(("A", "0.0.8")),
+        pkg!(("A", "0.0.11")),
+        pkg!(("A", "0.0.14")),
+        pkg!(("A", "0.0.15")),
+        pkg!(("B", "2.1.12")),
+        pkg!(("B", "2.9.19")),
+        pkg!(("B", "2.16.5")),
+        pkg!(("B", "5.7.0")),
+        pkg!(("B", "5.9.16") => [dep_req_kind("A", "*", Kind::Build, true),]),
+        pkg!(("B", "6.9.2")),
+        pkg!(("B", "6.19.12")),
+        pkg!(("B", "8.17.8")),
+        pkg!(("B", "10.16.2")),
+        pkg!(("B", "10.18.7")),
+        pkg!(("B", "14.13.10")),
+        pkg!(("C", "0.0.0")),
+        pkg!(("C", "0.0.1")),
+        pkg!(("C", "0.0.3")),
+        pkg!(("C", "0.0.5")),
+        pkg!(("C", "5.0.0")),
+        pkg!(("C", "5.0.2")),
+        pkg!(("C", "5.19.8")),
+        pkg!(("C", "6.0.0")),
+        pkg!(("C", "6.11.8")),
+        pkg!(("C", "10.18.0") => [dep_req("B", ">= 2.9.19, <= 10.18.7"),]),
+        pkg!(("C", "12.0.1") => [dep_req_kind("B", "<= 14.13.10", Kind::Normal, true),]),
+        pkg!(("C", "12.0.2")),
+        pkg!(("D", "15.10.12") => [
+            dep_req("C", ">= 6.0.4, <= 10.18.0"),]),
+        pkg!(("E", "11.10.0") => [
+            dep_req("B", "<= 6.19.12"),
+            dep_req_kind("C", ">= 0.0.5, <= 5.0.2", Kind::Build, false),
+        ]),
+        pkg!(("F", "16.12.19") => [
+            dep_req_kind("B", "<= 5.7.0", Kind::Build, false),
+        ]),
+        pkg!(("G", "0.0.5") => [
+            dep_req_kind("A", ">= 0.0.7", Kind::Build, false),
+            dep_req("C", ">= 12.0.1, <= 12.0.2"),
+        ]),
+        pkg!(("H", "0.0.8") => [
+            dep_req_kind("C", ">= 6.11.8,<= 10.18.0", Kind::Normal, true),
+            dep_req_kind("F", ">= 8.9.4", Kind::Build, true),
+        ]),
+        pkg!(("I", "6.12.9") => [
+            dep_req("B", "<= 9.18.1"),
+            dep_req_kind("C", "<= 12.2.3", Kind::Build, true),
+            dep_req_kind("E", ">= 4.3.13, <= 13.6.3", Kind::Normal, true),
+            dep_req("G", "<= 0.0.6"),]),
+        pkg!(("J", "0.0.0") => [dep("bad"),]),
+        pkg!(("J", "0.0.1") => [dep("bad"),]),
+        pkg!(("J", "0.0.2") => [
+            dep_req_kind("B", ">= 12.0.15", Kind::Build, true),
+            dep_req_kind("C", ">= 0.0.5, <= 6.0.0", Kind::Build, false),
+            dep_req("D", "*"),
+            dep_req_kind("I", "*", Kind::Normal, true),
+        ]),
+        pkg!(("J", "0.0.4") => [dep("bad"),]),
+        pkg!(("J", "0.0.6") => [dep("bad"),]),
+        pkg!(("J", "0.0.7") => [dep("bad"),]),
+        pkg!(("J", "0.0.9") => [dep("bad"),]),
+        pkg!(("J", "0.0.10") => [dep("bad"),]),
+        pkg!(("J", "0.0.11") => [dep("bad"),]),
+        pkg!(("J", "0.0.12") => [dep("bad"),]),
+        pkg!("K" => [
+            dep_req("A", ">= 0.0.8, <= 0.0.10"),
+            dep_req_kind("H", "= 0.0.8", Kind::Normal, true),
+            dep_req_kind("I", "*", Kind::Build, false),
+            dep("J"),]),
+    ];
+
+    let reg = registry(input.clone());
+    let _ = resolve_and_validated(&pkg_id("root"), vec![dep("K")], &reg);
+}
+
+#[test]
 #[should_panic(expected = "assertion failed: !name.is_empty()")]
 fn test_dependency_with_empty_name() {
     // Bug 5229, dependency-names must not be empty

@@ -468,8 +468,6 @@ fn activate_deps_loop(
                                 })
                                 .next()
                             {
-                                let rel = conflict.get(&pid).unwrap().clone();
-
                                 // The conflict we found is
                                 // "other dep will not succeed if we are activated."
                                 // We want to add
@@ -483,7 +481,10 @@ fn activate_deps_loop(
                                         .filter(|&(p, _)| p != &pid)
                                         .map(|(&p, r)| (p, r.clone())),
                                 );
-                                conflicting_activations.insert(other_parent, rel);
+                                conflicting_activations.insert(
+                                    other_parent,
+                                    ConflictReason::PaddingThatIsLargerThenTheOtherVariant,
+                                );
                                 has_past_conflicting_dep = true;
                             }
                         }

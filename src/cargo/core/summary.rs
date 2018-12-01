@@ -121,6 +121,11 @@ impl Summary {
         self
     }
 
+    pub fn set_dependencies(mut self, f: Vec<Dependency>) -> Summary {
+        Rc::make_mut(&mut self.inner).dependencies = f;
+        self
+    }
+
     pub fn map_source(self, to_replace: SourceId, replace_with: SourceId) -> Summary {
         let me = if self.package_id().source_id() == to_replace {
             let new_id = self.package_id().with_source_id(replace_with);
