@@ -420,8 +420,7 @@ pub fn registry_strategy(
         any::<Index>(),
         raw_version_range,
         0..=1,
-        Just(false),
-        // TODO: ^ this needs to be set back to `any::<bool>()` and work before public & private dependencies can stabilize
+        any::<bool>(),
     );
 
     fn order_index(a: Index, b: Index, size: usize) -> (usize, usize) {
@@ -476,7 +475,7 @@ pub fn registry_strategy(
                         match k {
                             0 => Kind::Normal,
                             1 => Kind::Build,
-                            // => Kind::Development, // Development has no impact so don't gen
+                            // => Kind::Development, // Development has not impact so don't gen
                             _ => panic!("bad index for Kind"),
                         },
                         p,
