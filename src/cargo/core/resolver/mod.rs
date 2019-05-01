@@ -851,7 +851,7 @@ impl RemainingCandidates {
     }
 }
 
-/// Attempts to find a new conflict that allows a `find_candidate` feather then the input one.
+/// Attempts to find a new conflict that allows `find_candidate` to go further back then the input one.
 /// It will add the new conflict to the cache if one is found.
 ///
 /// Panics if the input conflict is not all active in `cx`.
@@ -919,9 +919,22 @@ fn generalize_conflicting(
                             },
                             Some(other.summary.package_id()),
                         )
+                        .cloned()
+                        .or_else(|| {
+                            // ok so we dont have an existing conflict on other, maybe that is
+                            // because other could not be activated do to one of its dependencies
+                            generalize_children_conflicting(
+                                cx,
+                                registry,
+                                past_conflicting_activations,
+                                dep,
+                                &other.summary,
+                                *critical_parent,
+                            )
+                        })
                         .map(|con| (other.summary.package_id(), con))
                 })
-                .collect::<Option<Vec<(PackageId, &ConflictMap)>>>()
+                .collect::<Option<Vec<(PackageId, ConflictMap)>>>()
             {
                 let mut con = conflicting_activations.clone();
                 // It is always valid to combine previously inserted conflicts.
@@ -944,6 +957,52 @@ fn generalize_conflicting(
         }
     }
     None
+}
+
+/// Sees if the candidate is not usable because one of its children will have a conflict
+///
+/// Panics if the input conflict is not all active in `cx`.
+fn generalize_children_conflicting(
+    cx: &Context,
+    registry: &mut RegistryQueryer<'_>,
+    past_conflicting_activations: &mut conflict_cache::ConflictCache,
+    dep: &Dependency,
+    candidate: &Summary,
+    parent: PackageId,
+) -> Option<ConflictMap> {
+    let method = Method::Required {
+        dev_deps: false,
+        features: Rc::new(dep.features().iter().cloned().collect()),
+        all_features: false,
+        uses_default_features: dep.uses_default_features(),
+    };
+    let mut out = ConflictMap::new();
+    match registry.build_deps(Some(parent), candidate, &method) {
+        Err(ActivateError::Fatal(_)) => return None,
+        Err(ActivateError::Conflict(pid, reason)) => {
+            out.insert(pid, reason);
+        }
+        Ok(deps) => {
+            let con = deps
+                .1
+                .iter()
+                .filter_map(|(ref new_dep, _, _)| {
+                    past_conflicting_activations.conflicting(&cx, new_dep)
+                })
+                .next()?;
+            out.extend(con.iter().map(|(&pid, reason)| (pid, reason.clone())));
+        }
+    };
+    // If one of candidate deps is known unresolvable
+    // then candidate will not succeed.
+    // How ever if candidate is part of the reason that
+    // one of its deps conflicts then
+    // we can make a stronger statement
+    // because candidate will definitely be activated when
+    // we try its dep.
+    out.remove(&candidate.package_id());
+
+    Some(out)
 }
 
 /// Looks through the states in `backtrack_stack` for dependencies with
