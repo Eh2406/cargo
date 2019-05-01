@@ -1359,10 +1359,13 @@ fn large_conflict_cache() {
         input.push(pkg!(("last", format!("{}.0.0", in_len)) => [dep_req(&plane_name, "=1.0.0")]));
         root_deps.push(dep_req(&plane_name, ">= 1.0.1"));
 
-        for i in 0..=NUM_VERSIONS {
+        for i in 0..NUM_VERSIONS {
             input.push(pkg!((&sys_name, format!("{}.0.0", i))));
             input.push(pkg!((&plane_name, format!("1.0.{}", i))));
         }
+        // and one version that can't be activated for some other reason
+        input.push(pkg!((&sys_name, format!("{}.0.0", NUM_VERSIONS)) => [dep("bad")]));
+        input.push(pkg!((&plane_name, format!("1.0.{}", NUM_VERSIONS)) => [dep("bad")]));
     }
     let reg = registry(input);
     let _ = resolve(pkg_id("root"), root_deps, &reg);
@@ -1434,77 +1437,4 @@ fn conflict_store_more_then_one_match() {
     ];
     let reg = registry(input);
     let _ = resolve_and_validated(pkg_id("root"), vec![dep("nA")], &reg);
-}
-
-#[test]
-fn fuzz_fail() {
-    let input = vec![
-        pkg!(("A-sys", "0.0.0")),
-        pkg!(("A-sys", "0.0.1")),
-        pkg!(("A-sys", "0.0.2")),
-        pkg!(("A-sys", "0.0.3")),
-        pkg!(("A-sys", "0.0.4")),
-        pkg!(("A-sys", "0.0.5")),
-        pkg!(("B-sys", "0.0.0")),
-        pkg!(("B-sys", "0.0.1") => [dep("bad"),]),
-        pkg!(("B-sys", "0.0.2")),
-        pkg!(("B-sys", "0.0.3")),
-        pkg!(("B-sys", "0.0.4")),
-        pkg!(("B-sys", "0.0.5")),
-        pkg!(("B-sys", "0.0.6")),
-        pkg!(("L-sys", "0.0.0")),
-        pkg!(("L-sys", "0.0.1") => [dep("bad"),]),
-        pkg!(("L-sys", "0.0.2")),
-        pkg!(("L-sys", "0.0.3")),
-        pkg!(("L-sys", "0.0.4")),
-        pkg!(("L-sys", "0.0.5")),
-        pkg!(("L-sys", "0.0.6")),
-        pkg!(("L-sys", "0.0.7")),
-        pkg!(("S-sys", "0.0.0")),
-        pkg!(("S-sys", "0.0.1") => [dep("bad"),]),
-        pkg!(("S-sys", "0.0.2")),
-        pkg!(("S-sys", "0.0.3")),
-        pkg!(("S-sys", "0.0.4")),
-        pkg!(("S-sys", "0.0.5")),
-        pkg!(("S-sys", "0.0.6")),
-        pkg!(("S-sys", "0.0.7")),
-        pkg!(("T-sys", "0.0.0")),
-        pkg!(("T-sys", "0.0.1") => [dep("bad"),]),
-        pkg!(("T-sys", "0.0.2")),
-        pkg!(("T-sys", "0.0.3")),
-        pkg!(("T-sys", "0.0.4")),
-        pkg!(("T-sys", "0.0.5")),
-        pkg!(("T-sys", "0.0.6")),
-        pkg!(("T-sys", "0.0.7")),
-        pkg!(("T-sys", "0.0.8")),
-        pkg!(("U-sys", "0.0.0")),
-        pkg!(("U-sys", "0.0.1") => [dep("bad"),]),
-        pkg!(("U-sys", "0.0.2")),
-        pkg!(("U-sys", "0.0.3")),
-        pkg!(("U-sys", "0.0.4")),
-        pkg!(("U-sys", "0.0.5")),
-        pkg!(("U-sys", "0.0.6")),
-        pkg!(("U-sys", "0.0.7")),
-        pkg!(("U-sys", "0.0.8")),
-        pkg!(("i", "0.0.0") => [dep("bad"),]),
-        pkg!(("i", "0.0.1") => [dep("bad"),]),
-        pkg!(("i", "0.0.2") => [dep_req("T-sys", "= 0.0.0"),]),
-        pkg!(("i", "0.0.3") => [dep_req("A-sys", "= 0.0.0"),]),
-        pkg!(("i", "0.0.4") => [dep_req("L-sys", "= 0.0.0"),]),
-        pkg!(("i", "0.0.5") => [dep_req("S-sys", "= 0.0.0"),]),
-        pkg!(("i", "0.0.6") => [dep_req("B-sys", "= 0.0.0"),]),
-        pkg!(("i", "0.0.7") => [dep_req("U-sys", "= 0.0.0"),]),
-        pkg!("ua" => [
-            dep_req("A-sys", ">= 0.0.1"),
-            dep_req("B-sys", ">= 0.0.1"),
-            dep_req("L-sys", ">= 0.0.1"),
-            dep_req("S-sys", ">= 0.0.1"),
-            dep_req("T-sys", ">= 0.0.1"),
-            dep_req("U-sys", ">= 0.0.1"),
-            dep("i"),
-        ]),
-    ];
-
-    let reg = registry(input);
-    let _ = resolve_and_validated(pkg_id("root"), vec![dep("ua")], &reg);
 }
