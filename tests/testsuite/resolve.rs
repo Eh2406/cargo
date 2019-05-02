@@ -1442,140 +1442,127 @@ fn conflict_store_more_then_one_match() {
 #[test]
 fn fuzz_fail() {
     let input = vec![
-        pkg!(("A", "0.0.2") => [dep("bad"),]),
         pkg!(("B-sys", "0.0.0") => [dep("bad"),]),
-        pkg!(("B-sys", "0.0.1") => [dep("bad"),]),
-        pkg!(("B-sys", "0.0.2") => [dep("bad"),]),
-        pkg!(("B-sys", "0.0.6") => [dep("bad"),]),
+        pkg!(("B-sys", "0.0.1")),
         pkg!(("B-sys", "0.0.7")),
-        pkg!(("B-sys", "0.0.8") => [dep("bad"),]),
-        pkg!(("B-sys", "0.0.9") => [dep("bad"),]),
-        pkg!(("B-sys", "0.0.10")),
-        pkg!(("B-sys", "0.0.11") => [dep("bad"),]),
+        pkg!(("B-sys", "0.0.9")),
+        pkg!(("B-sys", "0.0.11")),
         pkg!(("B-sys", "0.0.12")),
         pkg!(("B-sys", "0.0.13")),
-        pkg!(("B-sys", "0.0.14") => [dep("bad"),]),
-        pkg!(("B-sys", "0.1.7") => [dep("bad"),]),
+        pkg!(("B-sys", "0.0.14")),
+        pkg!(("B-sys", "0.1.7")),
         pkg!(("B-sys", "0.1.8")),
-        pkg!(("B-sys", "0.1.9") => [dep("bad"),]),
-        pkg!(("B-sys", "0.1.10")),
-        pkg!(("C-sys", "0.0.0") => [dep("bad"),]),
-        pkg!(("C-sys", "0.0.1") => [dep("bad"),]),
-        pkg!(("C-sys", "0.0.2") => [dep("bad"),]),
         pkg!(("C-sys", "0.0.3")),
-        pkg!(("C-sys", "0.0.4") => [dep("bad"),]),
         pkg!(("C-sys", "0.0.5")),
         pkg!(("C-sys", "0.0.6")),
         pkg!(("C-sys", "0.0.7")),
         pkg!(("C-sys", "0.0.8")),
-        pkg!(("D-sys", "0.0.0") => [dep("bad"),]),
         pkg!(("D-sys", "0.0.1")),
         pkg!(("D-sys", "0.0.2") => [dep_req("B-sys", ">= 0.0.10, <= 0.1.8"),]),
         pkg!(("D-sys", "0.0.3")),
-        pkg!(("D-sys", "0.0.4")),
-        pkg!(("D0-sys", "0.0.1") => [dep("bad"),]),
-        pkg!(("D0-sys", "0.0.2") => [dep("bad"),]),
         pkg!(("D0-sys", "0.0.3")),
-        pkg!(("D0-sys", "0.0.4") => [dep("bad"),]),
         pkg!(("D0-sys", "0.0.5")),
         pkg!(("D0-sys", "0.0.6")),
         pkg!(("D0-sys", "0.0.7")),
         pkg!(("D0-sys", "0.0.8") => [dep_req("D-sys", "<= 0.0.2"),]),
-        pkg!(("L-sys", "0.0.0") => [dep("bad"),]),
-        pkg!(("L-sys", "0.0.1") => [dep("bad"),]),
+        pkg!(("L-sys", "0.0.0")),
         pkg!(("L-sys", "0.0.2")),
         pkg!(("L-sys", "0.0.3")),
-        pkg!(("L-sys", "0.0.4") => [dep("bad"),]),
+        pkg!(("L-sys", "0.0.4")),
         pkg!(("L-sys", "0.0.5") => [dep_req("D0-sys", ">= 0.0.1, <= 0.0.7"),]),
         pkg!(("O-sys", "0.0.0") => [dep("bad"),]),
-        pkg!(("O-sys", "0.0.1") => [dep("bad"),]),
-        pkg!(("O-sys", "0.0.2") => [dep("bad"),]),
-        pkg!(("O-sys", "0.0.3") => [dep("bad"),]),
-        pkg!(("O-sys", "0.0.4") => [dep("bad"),]),
-        pkg!(("O-sys", "0.0.5") => [dep("bad"),]),
-        pkg!(("O-sys", "0.0.6") => [dep("bad"),]),
         pkg!(("O-sys", "0.0.7")),
         pkg!(("O-sys", "0.0.8")),
         pkg!(("O-sys", "0.0.9")),
         pkg!(("O-sys", "0.0.10")),
-        pkg!(("O-sys", "0.0.11") => [dep_req("A", "= 0.0.2"),]),
+        pkg!(("O-sys", "0.0.11") => [
+            dep("A"), // cant be dep("bad") wtf?
+        ]),
         pkg!(("O-sys", "0.0.12")),
         pkg!(("O-sys", "0.0.13")),
-        pkg!(("S0-sys", "0.0.0") => [dep("bad"),]),
-        pkg!(("S0-sys", "0.0.1")),
         pkg!(("S0-sys", "0.0.2")),
-        pkg!(("S0-sys", "0.0.3")),
         pkg!(("S0-sys", "0.0.4")),
-        pkg!(("S0-sys", "0.0.5") => [dep("bad"),]),
-        pkg!(("S0-sys", "0.0.6") => [dep("bad"),]),
         pkg!(("S0-sys", "0.0.7")),
         pkg!(("S0-sys", "0.0.8")),
-        pkg!(("Sa", "0.1.11") => [dep("bad"),]),
-        pkg!(("Sa", "0.1.12") => [dep("bad"),]),
-        pkg!(("Sa", "0.1.13")),
-        pkg!(("Sa", "0.1.14") => [dep("bad"),]),
         pkg!(("Sa", "0.2.0") => [dep_req("D-sys", "<= 0.0.1"),dep_req("O-sys", "<= 0.0.1"),]),
-        pkg!(("X", "0.0.0") => [dep("bad"),]),
-        pkg!(("X", "0.0.1") => [dep("bad"),]),
-        pkg!(("X", "0.0.2") => [dep("bad"),]),
         pkg!(("X", "0.0.3") => [dep_req("B-sys", ">= 0.0.7, <= 0.1.10"),]),
-        pkg!(("X", "0.0.10") => [dep("bad"),]),
-        pkg!(("X", "0.0.11") => [dep("bad"),]),
-        pkg!(("X", "0.0.12") => [dep("bad"),]),
         pkg!(("X", "0.0.13") => [dep_req("D0-sys", ">= 0.0.4, <= 0.0.8"),dep_req("O-sys", "<= 0.0.10"),]),
-        pkg!(("X", "0.0.14") => [dep("bad"),]),
-        pkg!(("X", "0.0.15") => [dep("bad"),]),
-        pkg!(("X", "0.0.16") => [dep("bad"),]),
         pkg!(("X", "0.0.17") => [dep_req("B-sys", ">= 0.0.12, <= 0.1.8"),dep_req("O-sys", ">= 0.0.7, <= 0.0.13"),]),
-        pkg!(("a--sys", "0.0.0") => [dep("bad"),]),
-        pkg!(("a--sys", "0.0.4") => [dep("bad"),]),
-        pkg!(("a--sys", "0.0.5") => [dep("bad"),]),
-        pkg!(("a--sys", "0.0.6") => [dep("bad"),]),
-        pkg!(("a--sys", "0.0.7") => [dep("bad"),]),
-        pkg!(("a--sys", "0.0.8") => [dep("bad"),]),
-        pkg!(("a--sys", "0.0.9") => [dep("bad"),]),
-        pkg!(("a--sys", "0.0.10") => [dep("bad"),]),
-        pkg!(("a--sys", "0.0.11") => [dep_req("Sa", ">= 0.1.11, <= 0.1.13"),]),
-        pkg!(("a--sys", "0.0.12") => [dep_req("B-sys", "<= 0.0.0"),]),
-        pkg!(("a--sys", "0.0.13") => [dep("bad"),]),
+        pkg!(("a--sys", "0.0.0")),
+        pkg!(("a--sys", "0.0.8")),
+        pkg!(("a--sys", "0.0.11")),
+        pkg!(("a--sys", "0.0.12") => [dep_req("B-sys", "= 0.0.0"),]),
         pkg!(("a--sys", "0.0.14")),
         pkg!(("a--sys", "0.0.15")),
-        pkg!(("aa", "0.0.0") => [dep("bad"),]),
-        pkg!(("aa", "0.0.1") => [dep("bad"),]),
-        pkg!(("aa", "0.0.2") => [dep("bad"),]),
         pkg!(("aa", "0.0.3") => [dep("bad"),]),
-        pkg!(("b", "0.0.1") => [dep("bad"),]),
-        pkg!(("b", "0.0.2") => [dep("bad"),]),
         pkg!(("b", "0.0.3") => [dep("D-sys"),dep_req("S0-sys", ">= 0.0.2, <= 0.0.8"),dep_req("X", ">= 0.0.14, <= 0.0.17"),]),
         pkg!(("b", "0.0.4") => [dep("bad"),]),
         pkg!(("b", "0.0.5") => [dep_req("S0-sys", "<= 0.0.2"),dep_req("X", ">= 0.0.10, <= 0.0.13"),]),
-        pkg!(("eA", "0.0.4") => [dep("bad"),]),
-        pkg!(("eA", "0.0.5")),
         pkg!(("eA", "0.0.6")),
         pkg!(("eA", "0.0.7") => [dep_req("X", "<= 0.0.3"),]),
         pkg!(("i_", "0.0.0") => [dep("bad"),]),
-        pkg!(("i_", "0.0.1") => [dep("bad"),]),
-        pkg!(("i_", "0.0.2") => [dep("bad"),]),
-        pkg!(("i_", "0.0.3") => [dep("bad"),]),
-        pkg!(("i_", "0.0.4") => [dep("bad"),]),
         pkg!(("i_", "0.0.5") => [dep_req("a--sys", "= 0.0.0"),]),
         pkg!(("i_", "0.0.6") => [dep_req("Sa", ">= 0.1.14, <= 0.2.0"),]),
         pkg!(("i_", "0.0.7") => [dep_req("C-sys", "<= 0.0.3"),dep("aa"),]),
-        pkg!(("i_", "0.0.8") => [dep_req("B-sys", "<= 0.0.0"),]),
+        pkg!(("i_", "0.0.8") => [dep_req("B-sys", "= 0.0.0"),]),
         pkg!(("i_", "0.0.9") => [dep_req("O-sys", ">= 0.0.11, <= 0.0.13"),dep_req("b", ">= 0.0.4"),]),
         pkg!(("i_", "0.0.10") => [dep_req("B-sys", ">= 0.0.6, <= 0.0.7"),dep_req("S0-sys", ">= 0.0.3, <= 0.0.4"),]),
-        pkg!(("i_", "0.0.11") => [dep_req("O-sys", "<= 0.0.0"),]),
+        pkg!(("i_", "0.0.11") => [dep_req("O-sys", "= 0.0.0"),]),
         pkg!(("i_", "0.0.12") => [dep_req("B-sys", "<= 0.0.2"),dep_req("D0-sys", ">= 0.0.2, <= 0.0.3"),]),
-        pkg!("ua" => [
+        pkg!(("ua", "1.0.0") => [
             dep_req("C-sys", ">= 0.0.3, <= 0.0.8"),
             dep_req("L-sys", "<= 0.0.5"),
-            dep_req("a--sys", ">= 0.0.4"),
+            dep_req("a--sys", ">= 0.0.1"),
             dep("b"),
             dep("eA"),
             dep("i_"),
         ]),
     ];
 
+    //    use proptest::strategy::ValueTree;
+    //    use proptest::test_runner::TestRunner;
+    //    let indexes: Vec<usize> = (0..input.len()).collect();
+    //
+    //    let shuffle = Just(indexes)
+    //        .prop_shuffle()
+    //        .new_tree(&mut TestRunner::default())
+    //        .unwrap()
+    //        .current();
+    //
+    //    for i in shuffle {
+    //        println!("{}", input[i].package_id());
+    //        let mut new_input = input.clone();
+    //        new_input.remove(i);
+    //
+    //        // the erroring case
+    //        let reg = registry(new_input);
+    //        let _ = resolve_and_validated(pkg_id("root"), vec![dep("ua")], &reg);
+    //
+    //        let mut new_input = input.clone();
+    //        let summary = &input[i];
+    //
+    //        let deps_indexes: Vec<usize> = (0..summary.dependencies().len()).collect();
+    //
+    //        let deps_shuffle = Just(deps_indexes)
+    //            .prop_shuffle()
+    //            .new_tree(&mut TestRunner::default())
+    //            .unwrap()
+    //            .current();
+    //        for d in deps_shuffle {
+    //            println!(
+    //                "dep {} => {}",
+    //                summary.package_id(),
+    //                summary.dependencies()[d].package_name()
+    //            );
+    //            new_input[i] = remove_dep(&summary, d);
+    //            // the erroring case
+    //            let reg = registry(new_input.clone());
+    //            let _ = resolve_and_validated(pkg_id("root"), vec![dep("ua")], &reg);
+    //        }
+    //    }
+    //
+    //    println!("All passed, let's make sure the original still failed.");
+    // the erroring case
     let reg = registry(input);
     let _ = resolve_and_validated(pkg_id("root"), vec![dep("ua")], &reg);
 }

@@ -60,28 +60,15 @@ impl ResolverProgress {
                 config.shell().status("Resolving", "dependency graph...")?;
             }
         }
-        #[cfg(debug_assertions)]
-        {
-            // The largest test in our suite takes less then 5000 ticks
-            // with all the algorithm improvements.
-            // If any of them are removed then it takes more than I am willing to measure.
-            // So lets fail the test fast if we have ben running for two long.
-            assert!(
-                self.ticks < 50_000,
-                "got to 50_000 ticks in {:?}",
-                self.start.elapsed()
-            );
-            // The largest test in our suite takes less then 30 sec
-            // with all the improvements to how fast a tick can go.
-            // If any of them are removed then it takes more than I am willing to measure.
-            // So lets fail the test fast if we have ben running for two long.
-            if self.ticks % 1000 == 0 {
-                assert!(
-                    self.start.elapsed() - self.deps_time
-                        < Duration::from_secs(self.slow_cpu_multiplier * 90)
-                );
-            }
-        }
+        // The largest test in our suite takes less then 5000 ticks
+        // with all the algorithm improvements.
+        // If any of them are removed then it takes more than I am willing to measure.
+        // So lets fail the test fast if we have ben running for two long.
+        assert!(
+            self.ticks < 50_000,
+            "got to 50_000 ticks in {:?}",
+            self.start.elapsed()
+        );
         Ok(())
     }
     pub fn elapsed(&mut self, dur: Duration) {
