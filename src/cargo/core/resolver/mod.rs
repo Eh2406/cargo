@@ -595,6 +595,7 @@ fn activate(
     method: Method,
 ) -> ActivateResult<Option<(DepsFrame, Duration)>> {
     let candidate_pid = candidate.package_id();
+    cx.age += 1;
     if let Some((parent, dep)) = parent {
         let parent_pid = parent.package_id();
         Rc::make_mut(
@@ -939,7 +940,7 @@ fn find_candidate(
         // make any progress. As a result if we hit this condition we can
         // completely skip this backtrack frame and move on to the next.
         if let Some(age) = age {
-            if frame.context.age() > age {
+            if frame.context.age >= age {
                 trace!(
                     "{} = \"{}\" skip as not solving {}: {:?}",
                     frame.dep.package_name(),
