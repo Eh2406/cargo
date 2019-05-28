@@ -244,8 +244,13 @@ impl Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>> {
 #[derive(Clone, Debug, Default)]
 pub struct PublicDependency {
     /// For each active package the set of all the names it can see,
-    /// for each name the exact package that name resolves to and whether it exports that visibility.
-    inner: im_rc::HashMap<PackageId, im_rc::HashMap<InternedString, (PackageId, bool)>>,
+    /// for each name the exact package that name resolves to,
+    ///     the `ContextAge` when it was first visible,
+    ///     and the `ContextAge` when it was first exported.
+    inner: im_rc::HashMap<
+        PackageId,
+        im_rc::HashMap<InternedString, (PackageId, ContextAge, Option<ContextAge>)>,
+    >,
 }
 
 impl PublicDependency {
@@ -259,7 +264,7 @@ impl PublicDependency {
             .get(&candidate_pid) // if we have seen it before
             .iter()
             .flat_map(|x| x.values()) // all the things we have stored
-            .filter(|x| x.1) // as publicly exported
+            .filter(|x| x.2.is_some()) // as publicly exported
             .map(|x| x.0)
             .chain(Some(candidate_pid)) // but even if not we know that everything exports itself
             .collect()
@@ -269,6 +274,7 @@ impl PublicDependency {
         candidate_pid: PackageId,
         parent_pid: PackageId,
         is_public: bool,
+        age: ContextAge,
         parents: &Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>>,
     ) {
         // one tricky part is that `candidate_pid` may already be active and
@@ -283,7 +289,7 @@ impl PublicDependency {
                     im_rc::hashmap::Entry::Occupied(mut o) => {
                         // the (transitive) parent can already see something by `c`s name, it had better be `c`.
                         assert_eq!(o.get().0, c);
-                        if o.get().1 {
+                        if o.get().2.is_some() {
                             // The previous time the parent saw `c`, it was a public dependency.
                             // So all of its parents already know about `c`
                             // and we can save some time by stopping now.
@@ -291,19 +297,100 @@ impl PublicDependency {
                         }
                         if public {
                             // Mark that `c` has now bean seen publicly
-                            o.insert((c, public));
+                            let old_age = o.get().1;
+                            o.insert((c, old_age, if public { Some(age) } else { None }));
                         }
                     }
                     im_rc::hashmap::Entry::Vacant(v) => {
                         // The (transitive) parent does not have anything by `c`s name,
                         // so we add `c`.
-                        v.insert((c, public));
+                        v.insert((c, age, if public { Some(age) } else { None }));
                     }
                 }
                 // if `candidate_pid` was a private dependency of `p` then `p` parents can't see `c` thru `p`
                 if public {
                     // if it was public, then we add all of `p`s parents to be checked
                     stack.extend(parents.parents_of(p));
+                }
+            }
+        }
+
+        if cfg!(debug_assertions) {
+            // We did the incremental update that just added the new edge from candidate to parent.
+            // But this is debug so lets rebuild it from first principles and see if it is the same.
+            let mut pub_deps: HashMap<
+                PackageId,
+                HashMap<PackageId, (ContextAge, Option<ContextAge>)>,
+            > = HashMap::new();
+            for &p in parents.sort().iter().rev() {
+                let self_pub_deps = pub_deps.get(&p).cloned();
+                {
+                    let mut self_pub_deps: Vec<(PackageId, ContextAge, Option<ContextAge>)> =
+                        self_pub_deps
+                            .clone()
+                            .into_iter()
+                            .flatten()
+                            .map(|(x, y)| (x, y.0, y.1))
+                            .collect();
+                    self_pub_deps.sort();
+                    let mut struct_pub_deps: Vec<(PackageId, ContextAge, Option<ContextAge>)> =
+                        self.inner
+                            .get(&p)
+                            .into_iter()
+                            .flatten()
+                            .map(|x| x.1)
+                            .collect();
+                    struct_pub_deps.sort();
+                    assert_eq!(self_pub_deps, struct_pub_deps);
+                }
+                for (dp, deps) in parents.edges(&p) {
+                    let age = deps.iter().min_by_key(|d| d.1).map(|d| d.1).unwrap();
+                    let pub_age = deps
+                        .iter()
+                        .filter(|d| d.0.is_public())
+                        .min_by_key(|d| d.1)
+                        .map(|d| d.1);
+                    let db_pub_deps = pub_deps.entry(*dp).or_default();
+
+                    let old = db_pub_deps.get(&p).cloned();
+                    db_pub_deps.insert(
+                        p,
+                        (
+                            old.map(|(o, _)| std::cmp::min(o, age)).unwrap_or(age),
+                            if let Some(pub_age) = pub_age {
+                                Some(
+                                    old.and_then(|(_, o)| o)
+                                        .map(|o| std::cmp::min(o, pub_age))
+                                        .unwrap_or(pub_age),
+                                )
+                            } else {
+                                old.and_then(|(_, o)| o)
+                            },
+                        ),
+                    );
+
+                    for (&c, (_, c_pub_age)) in self_pub_deps.iter().flatten() {
+                        if let &Some(c_pub_age) = c_pub_age {
+                            let c_age = std::cmp::max(c_pub_age, age);
+                            let c_pub_age = pub_age.map(|a| std::cmp::max(c_pub_age, a));
+                            let old = db_pub_deps.get(&c).cloned();
+                            db_pub_deps.insert(
+                                c,
+                                (
+                                    old.map(|(o, _)| std::cmp::min(o, c_age)).unwrap_or(c_age),
+                                    if let Some(c_pub_age) = c_pub_age {
+                                        Some(
+                                            old.and_then(|(_, o)| o)
+                                                .map(|o| std::cmp::min(o, c_pub_age))
+                                                .unwrap_or(c_pub_age),
+                                        )
+                                    } else {
+                                        old.and_then(|(_, o)| o)
+                                    },
+                                ),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -330,7 +417,7 @@ impl PublicDependency {
                         // So, adding `b` will cause `p` to have a public dependency conflict on `t`.
                         return Err((p, ConflictReason::PublicDependency));
                     }
-                    if o.1 {
+                    if o.2.is_some() {
                         // The previous time the parent saw `t`, it was a public dependency.
                         // So all of its parents already know about `t`
                         // and we can save some time by stopping now.
