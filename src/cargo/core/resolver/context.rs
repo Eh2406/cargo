@@ -51,13 +51,13 @@ pub type ContextAge = usize;
 /// By storing this in a hash map we ensure that there is only one
 /// semver compatible version of each crate.
 /// This all so stores the `ContextAge`.
-pub type Activations =
-    im_rc::HashMap<(InternedString, SourceId, SemverCompatibility), (Summary, ContextAge)>;
+pub type ActivationsKey = (InternedString, SourceId, SemverCompatibility);
+pub type Activations = im_rc::HashMap<ActivationsKey, (Summary, ContextAge)>;
 
 /// A type that represents when cargo treats two Versions as compatible.
 /// Versions `a` and `b` are compatible if their left-most nonzero digit is the
 /// same.
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug, PartialOrd, Ord)]
 pub enum SemverCompatibility {
     Major(NonZeroU64),
     Minor(NonZeroU64),
@@ -77,7 +77,7 @@ impl From<&semver::Version> for SemverCompatibility {
 }
 
 impl PackageId {
-    pub fn as_activations_key(self) -> (InternedString, SourceId, SemverCompatibility) {
+    pub fn as_activations_key(self) -> ActivationsKey {
         (self.name(), self.source_id(), self.version().into())
     }
 }
@@ -155,6 +155,42 @@ impl Context {
             .and_then(|(s, l)| if s.package_id() == id { Some(*l) } else { None })
     }
 
+    /// If the conflict reason on the package still applies returns the `ContextAge` when it was added
+    pub fn still_applies(&self, id: PackageId, reason: &ConflictReason) -> Option<ContextAge> {
+        self.is_active(id).and_then(|mut max| {
+            match reason {
+                ConflictReason::PublicDependency(name) => {
+                    max = std::cmp::max(max, self.is_active(*name)?);
+                    max = std::cmp::max(
+                        max,
+                        self.public_dependency
+                            .as_ref()
+                            .unwrap()
+                            .can_add_item(
+                                id,
+                                *name,
+                                false, // todo: false is conservative but when can it be true?
+                                &self.parents,
+                            )
+                            .ok()??,
+                    );
+                }
+                ConflictReason::PubliclyExports(name) => {
+                    max = std::cmp::max(max, self.is_active(*name)?);
+                    max = std::cmp::max(
+                        max,
+                        self.public_dependency
+                            .as_ref()
+                            .unwrap()
+                            .publicly_exports_item(id, *name)?,
+                    );
+                }
+                _ => {}
+            }
+            Some(max)
+        })
+    }
+
     /// Checks whether all of `parent` and the keys of `conflicting activations`
     /// are still active.
     /// If so returns the `ContextAge` when the newest one was added.
@@ -164,12 +200,12 @@ impl Context {
         conflicting_activations: &ConflictMap,
     ) -> Option<usize> {
         let mut max = 0;
-        for &id in conflicting_activations.keys().chain(parent.as_ref()) {
-            if let Some(age) = self.is_active(id) {
-                max = std::cmp::max(max, age);
-            } else {
-                return None;
-            }
+        if let Some(parent) = parent {
+            max = std::cmp::max(max, self.is_active(parent)?);
+        }
+
+        for (id, reason) in conflicting_activations.iter() {
+            max = std::cmp::max(max, self.still_applies(*id, reason)?);
         }
         Some(max)
     }
@@ -201,10 +237,65 @@ impl Context {
     }
 }
 
+#[derive(Clone, Debug)]
+enum PublicContextAge {
+    /// This is only exported publicly, or this was exported publicly originally
+    JustPublic(ContextAge),
+    /// This was exported privately, and then later upgraded to exported publicly
+    Both(ContextAge, ContextAge),
+    /// This is only exported privately
+    JustPrivate(ContextAge),
+}
+
+impl PublicContextAge {
+    fn is_public(&self) -> bool {
+        if let PublicContextAge::JustPrivate(_) = self {
+            return false;
+        }
+        true
+    }
+    fn public_age(&self) -> ContextAge {
+        match self {
+            PublicContextAge::JustPublic(a) => *a,
+            PublicContextAge::Both(_, a) => *a,
+            PublicContextAge::JustPrivate(_) => panic!("called public_age on private dep"),
+        }
+    }
+    fn private_age(&self) -> ContextAge {
+        match self {
+            PublicContextAge::JustPublic(a) => *a,
+            PublicContextAge::Both(a, _) => *a,
+            PublicContextAge::JustPrivate(a) => *a,
+        }
+    }
+}
+
+fn as_public_context_age(deps: &[(Dependency, ContextAge)]) -> PublicContextAge {
+    if cfg!(debug_assertions) {
+        // deps are sorted by age
+        let mut max = 0;
+        for (_, age) in deps.iter() {
+            assert!(max <= *age);
+            max = *age;
+        }
+    }
+    let mut priv_age = None;
+    for (dep, age) in deps.iter() {
+        if dep.is_public() {
+            if let Some(priv_age) = priv_age {
+                return PublicContextAge::Both(priv_age, *age);
+            }
+            return PublicContextAge::JustPublic(*age);
+        }
+        priv_age.get_or_insert(*age);
+    }
+    PublicContextAge::JustPrivate(priv_age.expect("dep list must not be empty"))
+}
+
 impl Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>> {
-    pub fn parents_of(&self, p: PackageId) -> impl Iterator<Item = (PackageId, bool)> + '_ {
+    fn parents_of(&self, p: PackageId) -> impl Iterator<Item = (PackageId, PublicContextAge)> + '_ {
         self.edges(&p)
-            .map(|(grand, d)| (*grand, d.iter().any(|(x, _)| x.is_public())))
+            .map(|(grand, d)| (*grand, as_public_context_age(d)))
     }
 }
 
@@ -233,6 +324,24 @@ impl PublicDependency {
             .chain(Some(candidate_pid)) // but even if not we know that everything exports itself
             .collect()
     }
+    fn publicly_exports_item(
+        &self,
+        candidate_pid: PackageId,
+        target: PackageId,
+    ) -> Option<ContextAge> {
+        debug_assert_ne!(candidate_pid, target);
+        let out = self
+            .inner
+            .get(&candidate_pid)
+            .and_then(|names| names.get(&target.name()))
+            .filter(|(p, _, _)| *p == target)
+            .map(|(_, age, _)| *age);
+        debug_assert_eq!(
+            out.is_some(),
+            self.publicly_exports(candidate_pid).contains(&target)
+        );
+        out
+    }
     pub fn add_edge(
         &mut self,
         candidate_pid: PackageId,
@@ -247,7 +356,14 @@ impl PublicDependency {
         // publicly exported dependencies.
         for c in self.publicly_exports(candidate_pid) {
             // for each (transitive) parent that can newly see `t`
-            let mut stack = vec![(parent_pid, is_public)];
+            let mut stack = vec![(
+                parent_pid,
+                if is_public {
+                    PublicContextAge::JustPublic(0)
+                } else {
+                    PublicContextAge::JustPrivate(0)
+                },
+            )];
             while let Some((p, public)) = stack.pop() {
                 match self.inner.entry(p).or_default().entry(c.name()) {
                     im_rc::hashmap::Entry::Occupied(mut o) => {
@@ -259,20 +375,20 @@ impl PublicDependency {
                             // and we can save some time by stopping now.
                             continue;
                         }
-                        if public {
+                        if public.is_public() {
                             // Mark that `c` has now bean seen publicly
                             let old_age = o.get().1;
-                            o.insert((c, old_age, public));
+                            o.insert((c, old_age, public.is_public()));
                         }
                     }
                     im_rc::hashmap::Entry::Vacant(v) => {
                         // The (transitive) parent does not have anything by `c`s name,
                         // so we add `c`.
-                        v.insert((c, age, public));
+                        v.insert((c, age, public.is_public()));
                     }
                 }
                 // if `candidate_pid` was a private dependency of `p` then `p` parents can't see `c` thru `p`
-                if public {
+                if public.is_public() {
                     // if it was public, then we add all of `p`s parents to be checked
                     stack.extend(parents.parents_of(p));
                 }
@@ -285,32 +401,63 @@ impl PublicDependency {
         parent: PackageId,
         is_public: bool,
         parents: &Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>>,
-    ) -> Result<(), (PackageId, ConflictReason)> {
+    ) -> Result<
+        (),
+        (
+            (PackageId, ConflictReason),
+            Option<(PackageId, ConflictReason)>,
+        ),
+    > {
         // one tricky part is that `candidate_pid` may already be active and
         // have public dependencies of its own. So we not only need to check
         // `b_id` as visible to its parents but also all of its existing
         // publicly exported dependencies.
         for t in self.publicly_exports(b_id) {
-            self.can_add_item(t, parent, is_public, parents)?;
+            self.can_add_item(t, parent, is_public, parents)
+                .map_err(|e| {
+                    if t == b_id {
+                        (e, None)
+                    } else {
+                        (e, Some((b_id, ConflictReason::PubliclyExports(t))))
+                    }
+                })?;
         }
         Ok(())
     }
-    fn can_add_item(
+    pub fn can_add_item(
         &self,
         t: PackageId,
         parent: PackageId,
         is_public: bool,
         parents: &Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>>,
-    ) -> Result<(), (PackageId, ConflictReason)> {
-        let mut stack = vec![(parent, is_public)];
+    ) -> Result<Option<ContextAge>, (PackageId, ConflictReason)> {
+        let mut is_constrained = None;
+        let mut stack = vec![(
+            0,
+            (
+                parent,
+                if is_public {
+                    PublicContextAge::JustPublic(0)
+                } else {
+                    PublicContextAge::JustPrivate(0)
+                },
+            ),
+        )];
         // for each (transitive) parent that can newly see `t`
-        while let Some((p, public)) = stack.pop() {
+        while let Some((path_age, (p, public))) = stack.pop() {
             // TODO: dont look at the same thing more then once
             if let Some(o) = self.inner.get(&p).and_then(|x| x.get(&t.name())) {
                 if o.0 != t {
                     // the (transitive) parent can already see a different version by `t`s name.
                     // So, adding `b` will cause `p` to have a public dependency conflict on `t`.
-                    return Err((p, ConflictReason::PublicDependency));
+                    return Err((o.0, ConflictReason::PublicDependency(parent)));
+                }
+                let path_age = std::cmp::max(path_age, public.private_age());
+                let total_age = std::cmp::max(path_age, o.1);
+                let out_age = is_constrained.get_or_insert(total_age);
+                if *out_age > total_age {
+                    // we found one that can jump-back further so replace the out.
+                    is_constrained = Some(total_age);
                 }
                 if o.2 {
                     // The previous time the parent saw `t`, it was a public dependency.
@@ -320,11 +467,12 @@ impl PublicDependency {
                 }
             }
             // if `b` was a private dependency of `p` then `p` parents can't see `t` thru `p`
-            if public {
+            if public.is_public() {
+                let path_age = std::cmp::max(path_age, public.public_age());
                 // if it was public, then we add all of `p`s parents to be checked
-                stack.extend(parents.parents_of(p));
+                stack.extend(parents.parents_of(p).map(|g| (path_age, g)));
             }
         }
-        Ok(())
+        Ok(is_constrained)
     }
 }

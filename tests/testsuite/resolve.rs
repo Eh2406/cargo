@@ -381,6 +381,46 @@ fn public_dependency_skipping_in_backtracking() {
 }
 
 #[cargo_test]
+fn public_dependency_skipping_in_backtracking_2() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("V", "0.0.5")),
+        pkg!(("V", "0.0.4")),
+        pkg!(("V", "0.0.3")),
+        pkg!(("V", "0.0.0")),
+        pkg!("U" => [dep_req_kind("V", "<= 0.0.4", Kind::Normal, true),]),
+        pkg!("T" => [dep_req_kind("U", "*", Kind::Normal, true),dep_req("V", "<= 0.0.3"),]),
+        pkg!("A" => [dep("T"),dep_req("V", ">= 0.0.1"),]),
+    ];
+
+    let reg = registry(input);
+    resolve_and_validated(pkg_id("root"), vec![dep("A")], &reg, None).unwrap();
+}
+
+#[cargo_test]
+fn public_dependency_skipping_in_backtracking_3() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("A", "3.0.0")),
+        pkg!(("A", "3.0.1")),
+        pkg!(("A", "3.0.2")),
+        pkg!(("A", "4.0.0")),
+        pkg!(("B", "2.0.0") => [dep_req("A", "= 3.0.0"),]),
+        pkg!(("C", "0.0.0")),
+        pkg!(("C", "0.0.1") => [dep_req_kind("A", "= 3.0.0", Kind::Normal, true),]),
+        pkg!("D" => [dep_req("A", ">= 3.0.1"),dep("C"),]),
+        pkg!("E" => [dep_req("B", "= 2.0.0"),dep("D"),]),
+    ];
+
+    let reg = registry(input);
+    resolve_and_validated(pkg_id("root"), vec![dep("E")], &reg, None).unwrap();
+}
+
+#[cargo_test]
 fn public_sat_topological_order() {
     let input = vec![
         pkg!(("a", "0.0.1")),
