@@ -596,6 +596,7 @@ fn activate(
 ) -> ActivateResult<Option<(DepsFrame, Duration)>> {
     let candidate_pid = candidate.package_id();
     cx.age += 1;
+    let age = cx.age;
     if let Some((parent, dep)) = parent {
         let parent_pid = parent.package_id();
         Rc::make_mut(
@@ -603,7 +604,7 @@ fn activate(
             cx.parents.link(candidate_pid, parent_pid),
         )
         // and associate dep with that edge
-        .push(dep.clone());
+        .push((dep.clone(), age));
         if let Some(public_dependency) = cx.public_dependency.as_mut() {
             public_dependency.add_edge(candidate_pid, parent_pid, dep.is_public(), &cx.parents);
         }
@@ -819,7 +820,7 @@ fn generalize_conflicting(
             cx.is_active(*p).expect("parent not currently active!?") < backtrack_critical_age
         })
     {
-        for critical_parents_dep in critical_parents_deps.iter() {
+        for (critical_parents_dep, _) in critical_parents_deps.iter() {
             // A dep is equivalent to one of the things it can resolve to.
             // Thus, if all the things it can resolve to have already ben determined
             // to be conflicting, then we can just say that we conflict with the parent.

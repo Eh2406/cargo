@@ -37,7 +37,7 @@ pub struct Context {
 
     /// a way to look up for a package in activations what packages required it
     /// and all of the exact deps that it fulfilled.
-    pub parents: Graph<PackageId, Rc<Vec<Dependency>>>,
+    pub parents: Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>>,
 }
 
 /// When backtracking it can be useful to know how far back to go.
@@ -194,17 +194,17 @@ impl Context {
             for (o, e) in self.parents.edges(i) {
                 let old_link = graph.link(*o, *i);
                 assert!(old_link.is_empty());
-                *old_link = e.to_vec();
+                *old_link = e.iter().map(|(d, _)| d.clone()).collect();
             }
         }
         graph
     }
 }
 
-impl Graph<PackageId, Rc<Vec<Dependency>>> {
+impl Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>> {
     pub fn parents_of(&self, p: PackageId) -> impl Iterator<Item = (PackageId, bool)> + '_ {
         self.edges(&p)
-            .map(|(grand, d)| (*grand, d.iter().any(|x| x.is_public())))
+            .map(|(grand, d)| (*grand, d.iter().any(|(x, _)| x.is_public())))
     }
 }
 
@@ -236,7 +236,7 @@ impl PublicDependency {
         candidate_pid: PackageId,
         parent_pid: PackageId,
         is_public: bool,
-        parents: &Graph<PackageId, Rc<Vec<Dependency>>>,
+        parents: &Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>>,
     ) {
         // one tricky part is that `candidate_pid` may already be active and
         // have public dependencies of its own. So we not only need to mark
@@ -280,7 +280,7 @@ impl PublicDependency {
         b_id: PackageId,
         parent: PackageId,
         is_public: bool,
-        parents: &Graph<PackageId, Rc<Vec<Dependency>>>,
+        parents: &Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>>,
     ) -> Result<(), (PackageId, ConflictReason)> {
         // one tricky part is that `candidate_pid` may already be active and
         // have public dependencies of its own. So we not only need to check
