@@ -291,28 +291,38 @@ impl PublicDependency {
         // `b_id` as visible to its parents but also all of its existing
         // publicly exported dependencies.
         for t in self.publicly_exports(b_id) {
-            // for each (transitive) parent that can newly see `t`
-            let mut stack = vec![(parent, is_public)];
-            while let Some((p, public)) = stack.pop() {
-                // TODO: dont look at the same thing more then once
-                if let Some(o) = self.inner.get(&p).and_then(|x| x.get(&t.name())) {
-                    if o.0 != t {
-                        // the (transitive) parent can already see a different version by `t`s name.
-                        // So, adding `b` will cause `p` to have a public dependency conflict on `t`.
-                        return Err((p, ConflictReason::PublicDependency));
-                    }
-                    if o.2 {
-                        // The previous time the parent saw `t`, it was a public dependency.
-                        // So all of its parents already know about `t`
-                        // and we can save some time by stopping now.
-                        continue;
-                    }
+            self.can_add_item(t, parent, is_public, parents)?;
+        }
+        Ok(())
+    }
+    fn can_add_item(
+        &self,
+        t: PackageId,
+        parent: PackageId,
+        is_public: bool,
+        parents: &Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>>,
+    ) -> Result<(), (PackageId, ConflictReason)> {
+        let mut stack = vec![(parent, is_public)];
+        // for each (transitive) parent that can newly see `t`
+        while let Some((p, public)) = stack.pop() {
+            // TODO: dont look at the same thing more then once
+            if let Some(o) = self.inner.get(&p).and_then(|x| x.get(&t.name())) {
+                if o.0 != t {
+                    // the (transitive) parent can already see a different version by `t`s name.
+                    // So, adding `b` will cause `p` to have a public dependency conflict on `t`.
+                    return Err((p, ConflictReason::PublicDependency));
                 }
-                // if `b` was a private dependency of `p` then `p` parents can't see `t` thru `p`
-                if public {
-                    // if it was public, then we add all of `p`s parents to be checked
-                    stack.extend(parents.parents_of(p));
+                if o.2 {
+                    // The previous time the parent saw `t`, it was a public dependency.
+                    // So all of its parents already know about `t`
+                    // and we can save some time by stopping now.
+                    continue;
                 }
+            }
+            // if `b` was a private dependency of `p` then `p` parents can't see `t` thru `p`
+            if public {
+                // if it was public, then we add all of `p`s parents to be checked
+                stack.extend(parents.parents_of(p));
             }
         }
         Ok(())
