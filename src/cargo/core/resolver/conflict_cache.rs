@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use log::trace;
 
-use super::types::ConflictMap;
+use super::types::{ConflictMap, ConflictReason};
 use crate::core::resolver::Context;
 use crate::core::{Dependency, PackageId};
 
@@ -13,17 +13,17 @@ enum ConflictStoreTrie {
     Leaf(ConflictMap),
     /// A map from an element to a subtrie where
     /// all the sets in the subtrie contains that element.
-    Node(BTreeMap<PackageId, ConflictStoreTrie>),
+    Node(BTreeMap<PackageId, BTreeMap<ConflictReason, ConflictStoreTrie>>),
 }
 
 impl ConflictStoreTrie {
     /// Finds any known set of conflicts, if any,
-    /// where all elements return some from `is_active` and contain `PackageId` specified.
+    /// where all elements return some from `still_applies` and contain `PackageId` specified.
     /// If more then one are activated, then it will return
     /// one that will allow for the most jump-back.
     fn find(
         &self,
-        is_active: &impl Fn(PackageId) -> Option<usize>,
+        still_applies: &impl Fn(PackageId, &ConflictReason) -> Option<usize>,
         must_contain: Option<PackageId>,
     ) -> Option<(&ConflictMap, usize)> {
         match self {
@@ -37,41 +37,53 @@ impl ConflictStoreTrie {
             }
             ConflictStoreTrie::Node(m) => {
                 let mut out = None;
-                for (&pid, store) in must_contain
+                for (pid, reasons) in must_contain
                     .map(|f| m.range(..=f))
                     .unwrap_or_else(|| m.range(..))
                 {
-                    // If the key is active, then we need to check all of the corresponding subtrie.
-                    if let Some(age_this) = is_active(pid) {
-                        if let Some((o, age_o)) =
-                            store.find(is_active, must_contain.filter(|&f| f != pid))
-                        {
-                            let age = if must_contain == Some(pid) {
-                                // all the results will include `must_contain`
-                                // so the age of must_contain is not relevant to find the best result.
-                                age_o
-                            } else {
-                                std::cmp::max(age_this, age_o)
-                            };
-                            let out_age = out.get_or_insert((o, age)).1;
-                            if out_age > age {
-                                // we found one that can jump-back further so replace the out.
-                                out = Some((o, age));
+                    for (reason, store) in reasons.iter() {
+                        // If the key still applies, then we need to check all of the corresponding subtrie.
+                        if let Some(age_this) = still_applies(*pid, reason) {
+                            if let Some((o, age_o)) = store.find(
+                                still_applies,
+                                must_contain
+                                    .filter(|f| !(f == pid || Some(*f) == reason.other_pid())),
+                            ) {
+                                let age = if must_contain == Some(*pid)
+                                    || Some(*pid) == reason.other_pid()
+                                {
+                                    // all the results will include `must_contain`
+                                    // so the age of must_contain is not relevant to find the best result.
+                                    age_o
+                                } else {
+                                    std::cmp::max(age_this, age_o)
+                                };
+                                let out_age = out.get_or_insert((o, age)).1;
+                                if out_age > age {
+                                    // we found one that can jump-back further so replace the out.
+                                    out = Some((o, age));
+                                }
                             }
                         }
+                        // Else, if it is not active then there is no way any of the corresponding
+                        // subtrie will be conflicting.
                     }
-                    // Else, if it is not active then there is no way any of the corresponding
-                    // subtrie will be conflicting.
                 }
                 out
             }
         }
     }
 
-    fn insert(&mut self, mut iter: impl Iterator<Item = PackageId>, con: ConflictMap) {
-        if let Some(pid) = iter.next() {
+    fn insert<'a>(
+        &mut self,
+        mut iter: impl Iterator<Item = (&'a PackageId, &'a ConflictReason)>,
+        con: ConflictMap,
+    ) {
+        if let Some((&pid, reason)) = iter.next() {
             if let ConflictStoreTrie::Node(p) = self {
                 p.entry(pid)
+                    .or_default()
+                    .entry(reason.clone())
                     .or_insert_with(|| ConflictStoreTrie::Node(BTreeMap::new()))
                     .insert(iter, con);
             }
@@ -91,9 +103,7 @@ impl ConflictStoreTrie {
             //      We can replace it with `Leaf(con)`.
             if cfg!(debug_assertions) {
                 if let ConflictStoreTrie::Leaf(c) = self {
-                    let a: Vec<_> = con.keys().collect();
-                    let b: Vec<_> = c.keys().collect();
-                    assert_eq!(a, b);
+                    assert_eq!(con, *c);
                 }
             }
             *self = ConflictStoreTrie::Leaf(con)
@@ -150,12 +160,12 @@ impl ConflictCache {
     pub fn find(
         &self,
         dep: &Dependency,
-        is_active: &impl Fn(PackageId) -> Option<usize>,
+        still_applies: &impl Fn(PackageId, &ConflictReason) -> Option<usize>,
         must_contain: Option<PackageId>,
     ) -> Option<&ConflictMap> {
         self.con_from_dep
             .get(dep)?
-            .find(is_active, must_contain)
+            .find(still_applies, must_contain)
             .map(|(c, _)| c)
     }
     /// Finds any known set of conflicts, if any,
@@ -168,12 +178,25 @@ impl ConflictCache {
         dep: &Dependency,
         must_contain: Option<PackageId>,
     ) -> Option<&ConflictMap> {
-        let out = self.find(dep, &|id| cx.is_active(id), must_contain);
+        let out = self.find(
+            dep,
+            &|id, reason| {
+                if reason.is_public_dependency() {
+                    // TODO: need to think how this interacts with public dependencies
+                    return None;
+                }
+                cx.still_applies(id, reason)
+            },
+            must_contain,
+        );
         if cfg!(debug_assertions) {
             if let Some(c) = &out {
                 assert!(cx.is_conflicting(None, c).is_some());
                 if let Some(f) = must_contain {
-                    assert!(c.contains_key(&f));
+                    assert!(
+                        c.contains_key(&f)
+                            || c.values().any(|reason| Some(f) == reason.other_pid())
+                    );
                 }
             }
         }
@@ -187,15 +210,10 @@ impl ConflictCache {
     /// `dep` is known to be unresolvable if
     /// all the `PackageId` entries are activated.
     pub fn insert(&mut self, dep: &Dependency, con: &ConflictMap) {
-        if con.values().any(|c| c.is_public_dependency()) {
-            // TODO: needs more info for back jumping
-            // for now refuse to cache it.
-            return;
-        }
         self.con_from_dep
             .entry(dep.clone())
             .or_insert_with(|| ConflictStoreTrie::Node(BTreeMap::new()))
-            .insert(con.keys().cloned(), con.clone());
+            .insert(con.iter(), con.clone());
 
         trace!(
             "{} = \"{}\" adding a skip {:?}",
@@ -204,9 +222,13 @@ impl ConflictCache {
             con
         );
 
-        for c in con.keys() {
+        for c in con
+            .keys()
+            .cloned()
+            .chain(con.values().filter_map(|r| r.other_pid()))
+        {
             self.dep_from_pid
-                .entry(c.clone())
+                .entry(c)
                 .or_insert_with(HashSet::new)
                 .insert(dep.clone());
         }

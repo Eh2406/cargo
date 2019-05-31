@@ -293,6 +293,14 @@ impl ConflictReason {
         }
         false
     }
+
+    pub fn other_pid(&self) -> Option<PackageId> {
+        match self {
+            ConflictReason::PublicDependency(p) => Some(*p),
+            ConflictReason::PubliclyExports(p) => Some(*p),
+            _ => None,
+        }
+    }
 }
 
 /// A list of packages that have gotten in the way of resolving a dependency.
