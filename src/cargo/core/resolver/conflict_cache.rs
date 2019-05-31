@@ -25,6 +25,7 @@ impl ConflictStoreTrie {
         &self,
         still_applies: &impl Fn(PackageId, &ConflictReason) -> Option<usize>,
         must_contain: Option<PackageId>,
+        mut max_age: usize,
     ) -> Option<(&ConflictMap, usize)> {
         match self {
             ConflictStoreTrie::Leaf(c) => {
@@ -44,10 +45,17 @@ impl ConflictStoreTrie {
                     for (reason, store) in reasons.iter() {
                         // If the key still applies, then we need to check all of the corresponding subtrie.
                         if let Some(age_this) = still_applies(*pid, reason) {
+                            if age_this >= max_age
+                                && !(must_contain == Some(*pid) || Some(*pid) == reason.other_pid())
+                            {
+                                // not worth looking at, it is to old.
+                                continue;
+                            }
                             if let Some((o, age_o)) = store.find(
                                 still_applies,
                                 must_contain
                                     .filter(|f| !(f == pid || Some(*f) == reason.other_pid())),
+                                max_age,
                             ) {
                                 let age = if must_contain == Some(*pid)
                                     || Some(*pid) == reason.other_pid()
@@ -58,10 +66,11 @@ impl ConflictStoreTrie {
                                 } else {
                                     std::cmp::max(age_this, age_o)
                                 };
-                                let out_age = out.get_or_insert((o, age)).1;
-                                if out_age > age {
+                                if max_age > age {
                                     // we found one that can jump-back further so replace the out.
                                     out = Some((o, age));
+                                    // and dont look at anything older
+                                    max_age = age
                                 }
                             }
                         }
@@ -162,10 +171,11 @@ impl ConflictCache {
         dep: &Dependency,
         still_applies: &impl Fn(PackageId, &ConflictReason) -> Option<usize>,
         must_contain: Option<PackageId>,
+        max_age: usize,
     ) -> Option<&ConflictMap> {
         self.con_from_dep
             .get(dep)?
-            .find(still_applies, must_contain)
+            .find(still_applies, must_contain, max_age)
             .map(|(c, _)| c)
     }
     /// Finds any known set of conflicts, if any,
@@ -188,6 +198,7 @@ impl ConflictCache {
                 cx.still_applies(id, reason)
             },
             must_contain,
+            std::usize::MAX,
         );
         if cfg!(debug_assertions) {
             if let Some(c) = &out {
