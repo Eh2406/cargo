@@ -387,8 +387,10 @@ fn activate_deps_loop(
                 // and we're almost ready to move on. We may want to scrap this
                 // frame in the end if it looks like it's not going to end well,
                 // so figure that out here.
-                Ok(Some((mut frame, dur))) => {
-                    printed.elapsed(dur);
+                Ok(newly_activated) => {
+                    if let Some((_, dur)) = &newly_activated {
+                        printed.elapsed(*dur);
+                    }
 
                     // Our `frame` here is a new package with its own list of
                     // dependencies. Do a sanity check here of all those
@@ -406,30 +408,61 @@ fn activate_deps_loop(
                     // conflict with us.
                     let mut has_past_conflicting_dep =
                         just_here_for_the_error_messages && !backtracked;
-                    if !has_past_conflicting_dep {
-                        if let Some(conflicting) = frame
-                            .remaining_siblings
-                            .clone()
-                            .filter_map(|(_, (ref new_dep, _, _))| {
-                                past_conflicting_activations.conflicting(&cx, new_dep)
-                            })
-                            .next()
-                        {
-                            // If one of our deps is known unresolvable
-                            // then we will not succeed.
-                            // How ever if we are part of the reason that
-                            // one of our deps conflicts then
-                            // we can make a stronger statement
-                            // because we will definitely be activated when
-                            // we try our dep.
-                            conflicting_activations.extend(
-                                conflicting
-                                    .iter()
-                                    .filter(|&(p, _)| p != &pid)
-                                    .map(|(&p, r)| (p, r.clone())),
-                            );
+                    if let Some((frame, _)) = &newly_activated {
+                        if !has_past_conflicting_dep {
+                            if let Some(conflicting) = frame
+                                .remaining_siblings
+                                .clone()
+                                .filter_map(|(_, (ref new_dep, _, _))| {
+                                    past_conflicting_activations.conflicting(&cx, new_dep)
+                                })
+                                .next()
+                            {
+                                // If one of our deps is known unresolvable
+                                // then we will not succeed.
+                                conflicting_activations.extend(
+                                    conflicting.iter().map(|(&p, r)| (p, r.clone())).filter_map(
+                                        |x| {
+                                            use ConflictReason::*;
+                                            // How ever if we are part of the reason that
+                                            // one of our deps conflicts then
+                                            // we can make a stronger statement
+                                            // because we will definitely be activated when
+                                            // we try our dep.
 
-                            has_past_conflicting_dep = true;
+                                            match x {
+                                                // TODO: need to think how this interacts with public dependencies
+                                                (p, PublicDependency(r)) if r == pid => {
+                                                    if p == r {
+                                                        unimplemented!("case 1");
+                                                        None
+                                                    } else {
+                                                        Some((
+                                                            p,
+                                                            PublicDependency(parent.package_id()),
+                                                        ))
+                                                    }
+                                                }
+                                                (p, PublicDependency(r)) if p == pid => {
+                                                    // `new_dep` can not be resolved if we are exported.
+                                                    // We will be exported if we are selected.
+                                                    Some((parent.package_id(), PublicDependency(r)))
+                                                }
+                                                (_p, PubliclyExports(r)) if r == pid => {
+                                                    unimplemented!("case 3")
+                                                }
+                                                (p, PubliclyExports(_r)) if p == pid => {
+                                                    unimplemented!("case 4")
+                                                }
+                                                (p, _) if p == pid => None,
+                                                _ => Some(x),
+                                            }
+                                        },
+                                    ),
+                                );
+
+                                has_past_conflicting_dep = true;
+                            }
                         }
                     }
                     // If any of `remaining_deps` are known unresolvable with
@@ -456,8 +489,6 @@ fn activate_deps_loop(
                                 })
                                 .next()
                             {
-                                let rel = conflict.get(&pid).unwrap().clone();
-
                                 // The conflict we found is
                                 // "other dep will not succeed if we are activated."
                                 // We want to add
@@ -468,10 +499,34 @@ fn activate_deps_loop(
                                 conflicting_activations.extend(
                                     conflict
                                         .iter()
-                                        .filter(|&(p, _)| p != &pid)
-                                        .map(|(&p, r)| (p, r.clone())),
+                                        .map(|(&p, r)| (p, r.clone()))
+                                        .filter_map(|x| {
+                                            use ConflictReason::*;
+                                            match x {
+                                                // TODO: need to think how this interacts with public dependencies
+                                                (_p, PublicDependency(r)) if r == pid => {
+                                                    unimplemented!("case 1")
+                                                }
+                                                (p, PublicDependency(r)) if p == pid => {
+                                                    // `other_dep` can not be resolved if we are exported.
+                                                    // We will be exported if we are selected.
+                                                    // So we can not be activated if `other_parent` can see `parent`.
+                                                    Some((parent.package_id(), PublicDependency(r)))
+                                                }
+                                                (p, PubliclyExports(r)) if r == pid => {
+                                                    // somthing somthing somthing
+                                                    Some((p, PubliclyExports(parent.package_id())))
+                                                }
+                                                (p, PubliclyExports(_r)) if p == pid => {
+                                                    unimplemented!("case 4")
+                                                }
+                                                (p, ref rel) if p == pid => {
+                                                    Some((other_parent, rel.clone()))
+                                                }
+                                                _ => Some(x),
+                                            }
+                                        }),
                                 );
-                                conflicting_activations.insert(other_parent, rel);
                                 has_past_conflicting_dep = true;
                             }
                         }
@@ -519,9 +574,11 @@ fn activate_deps_loop(
                     // Otherwise we're guaranteed to fail and were not here for
                     // error messages, so we skip work and don't push anything
                     // onto our stack.
-                    frame.just_for_error_messages = has_past_conflicting_dep;
                     if !has_past_conflicting_dep || activate_for_error_message {
-                        remaining_deps.push(frame);
+                        if let Some((mut frame, _)) = newly_activated {
+                            frame.just_for_error_messages = has_past_conflicting_dep;
+                            remaining_deps.push(frame);
+                        }
                         true
                     } else {
                         trace!(
@@ -534,10 +591,6 @@ fn activate_deps_loop(
                         false
                     }
                 }
-
-                // This candidate's already activated, so there's no extra work
-                // for us to do. Let's keep going.
-                Ok(None) => true,
 
                 // We failed with a super fatal error (like a network error), so
                 // bail out as quickly as possible as we can't reliably
@@ -848,15 +901,17 @@ fn generalize_conflicting(
                         .find(
                             dep,
                             &|id, reason| {
-                                if reason.is_public_dependency() {
-                                    // TODO: need to think how this interacts with public dependencies
-                                    return None;
-                                }
-                                if id == other.package_id() {
+                                if id == other.package_id()
+                                    || reason.other_pid() == Some(other.package_id())
+                                {
+                                    if reason.is_public_dependency() {
+                                        // TODO: need to think how this interacts with public dependencies
+                                        return None;
+                                    }
                                     // we are imagining that we used other instead
                                     Some(backtrack_critical_age)
                                 } else {
-                                    cx.is_active(id)
+                                    cx.still_applies(id, reason)
                                 }
                             },
                             Some(other.package_id()),

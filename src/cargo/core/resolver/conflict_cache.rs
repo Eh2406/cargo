@@ -190,13 +190,7 @@ impl ConflictCache {
     ) -> Option<&ConflictMap> {
         let out = self.find(
             dep,
-            &|id, reason| {
-                if reason.is_public_dependency() {
-                    // TODO: need to think how this interacts with public dependencies
-                    return None;
-                }
-                cx.still_applies(id, reason)
-            },
+            &|id, reason| cx.still_applies(id, reason),
             must_contain,
             std::usize::MAX,
         );
