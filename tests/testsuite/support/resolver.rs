@@ -21,16 +21,11 @@ use proptest::string::string_regex;
 use proptest::test_runner::TestRunner;
 use varisat::{self, ExtendFormula};
 
-pub fn resolve(
-    pkg: PackageId,
-    deps: Vec<Dependency>,
-    registry: &[Summary],
-) -> CargoResult<Vec<PackageId>> {
-    resolve_with_config(pkg, deps, registry, None)
+pub fn resolve(deps: Vec<Dependency>, registry: &[Summary]) -> CargoResult<Vec<PackageId>> {
+    resolve_with_config(deps, registry, None)
 }
 
 pub fn resolve_and_validated(
-    pkg: PackageId,
     deps: Vec<Dependency>,
     registry: &[Summary],
     sat_resolve: Option<&mut SatResolve>,
@@ -40,11 +35,11 @@ pub fn resolve_and_validated(
     } else {
         SatResolve::new(registry).sat_resolve(&deps)
     };
-    let resolve = resolve_with_config_raw(pkg, deps, registry, None);
+    let resolve = resolve_with_config_raw(deps, registry, None);
     assert_eq!(resolve.is_ok(), should_resolve);
 
     let resolve = resolve?;
-    let mut stack = vec![pkg];
+    let mut stack = vec![pkg_id("root")];
     let mut used = HashSet::new();
     let mut links = HashSet::new();
     while let Some(p) = stack.pop() {
@@ -96,17 +91,15 @@ pub fn resolve_and_validated(
 }
 
 pub fn resolve_with_config(
-    pkg: PackageId,
     deps: Vec<Dependency>,
     registry: &[Summary],
     config: Option<&Config>,
 ) -> CargoResult<Vec<PackageId>> {
-    let resolve = resolve_with_config_raw(pkg, deps, registry, config)?;
+    let resolve = resolve_with_config_raw(deps, registry, config)?;
     Ok(resolve.sort())
 }
 
 pub fn resolve_with_config_raw(
-    pkg: PackageId,
     deps: Vec<Dependency>,
     registry: &[Summary],
     config: Option<&Config>,
@@ -162,7 +155,7 @@ pub fn resolve_with_config_raw(
         used: HashSet::new(),
     };
     let summary = Summary::new(
-        pkg,
+        pkg_id("root"),
         deps,
         &BTreeMap::<String, Vec<String>>::new(),
         None::<String>,
@@ -856,7 +849,6 @@ fn meta_test_deep_trees_from_strategy() {
         let reg = registry(input.clone());
         for this in input.iter().rev().take(10) {
             let res = resolve(
-                pkg_id("root"),
                 vec![dep_req(&this.name(), &format!("={}", this.version()))],
                 &reg,
             );
@@ -895,7 +887,6 @@ fn meta_test_multiple_versions_strategy() {
         let reg = registry(input.clone());
         for this in input.iter().rev().take(10) {
             let res = resolve(
-                pkg_id("root"),
                 vec![dep_req(&this.name(), &format!("={}", this.version()))],
                 &reg,
             );
