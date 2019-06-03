@@ -404,7 +404,8 @@ fn activate_deps_loop(
                     // dependency can't be activated which implies that we
                     // ourselves can't be activated, so we know that they
                     // conflict with us.
-                    let mut has_past_conflicting_dep = just_here_for_the_error_messages;
+                    let mut has_past_conflicting_dep =
+                        just_here_for_the_error_messages && !backtracked;
                     if !has_past_conflicting_dep {
                         if let Some(conflicting) = frame
                             .remaining_siblings
@@ -489,7 +490,7 @@ fn activate_deps_loop(
                     // backtrack stack then we're the last line of defense, so
                     // we'll want to present an error message for sure.
                     let activate_for_error_message = has_past_conflicting_dep && !has_another && {
-                        just_here_for_the_error_messages || {
+                        (just_here_for_the_error_messages && !backtracked) || {
                             find_candidate(
                                 &cx,
                                 &mut backtrack_stack.clone(),
