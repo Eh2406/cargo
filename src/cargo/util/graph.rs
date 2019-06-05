@@ -136,15 +136,15 @@ impl<N: Eq + Ord + Clone, E: Default + Clone> Default for Graph<N, E> {
     }
 }
 
-impl<N: fmt::Display + Eq + Ord + Clone, E: Clone> fmt::Debug for Graph<N, E> {
+impl<N: fmt::Display + Eq + Ord + Clone, E: Clone + fmt::Debug> fmt::Debug for Graph<N, E> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(fmt, "Graph {{")?;
 
         for (n, e) in &self.nodes {
             writeln!(fmt, "  - {}", n)?;
 
-            for n in e.keys() {
-                writeln!(fmt, "    - {}", n)?;
+            for (n, e) in e {
+                writeln!(fmt, "    - {} => {:?}", n, e)?;
             }
         }
 

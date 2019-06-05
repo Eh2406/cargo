@@ -559,6 +559,109 @@ fn public_dependency_skipping_in_backtracking_9() {
 }
 
 #[cargo_test]
+fn public_dependency_skipping_in_backtracking_10() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("a", "18.13.2")),
+        pkg!(("a", "16.14.10")),
+        pkg!(("b", "18.2.6")),
+        pkg!(("b", "11.5.13")),
+        pkg!(("T-sys", "18.1.4")),
+        pkg!(("T-sys", "12.7.12")),
+        pkg!(("T-sys", "9.19.18")),
+        pkg!(("T-sys", "8.18.2") => [dep_req_kind("b", "= 18.2.6", Kind::Normal, true),]),
+        pkg!(("U", "14.1.0")),
+        pkg!(("U", "11.5.14")),
+        pkg!("V" => [dep_req("T-sys", "<= 9.19.18"),dep_req("b", "= 11.5.13"),]),
+        pkg!(("W", "14.8.7") => [dep("bad"),]),
+        pkg!(("W", "12.3.10") => [dep_req_kind("T-sys", ">= 12.7.12", Kind::Normal, true),]),
+        pkg!("X" => [dep_req_kind("U", "*", Kind::Normal, true),dep_req_kind("T-sys", "<= 9.19.18", Kind::Normal, true),]),
+        pkg!("Z" => [dep("X"),dep("W"),dep("V"),dep("a"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("Z")], &reg, None);
+}
+
+#[cargo_test]
+fn public_dependency_skipping_in_backtracking_11() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("c3", "0.0.7")),
+        pkg!(("c3", "0.0.5")),
+        pkg!(("c3", "0.0.3")),
+        pkg!(("c3", "0.0.1")),
+        pkg!(("c0", "0.0.0") => [dep_req("c3", ">= 0.0.2"),]),
+        pkg!(("a-sys", "0.0.6") => [dep_req_kind("c3", "<= 0.0.5", Kind::Normal, true),]),
+        pkg!(("a-sys", "0.0.3")),
+        pkg!(("a-sys", "0.0.1")),
+        pkg!(("a-sys", "0.0.0")),
+        pkg!(("U", "0.0.1") => [dep_req("a-sys", "<= 0.0.6"),dep_req("c0", "<= 0.0.0"),dep_req("c3", ">= 0.0.1, <= 0.0.5"),]),
+        pkg!("Z" => [dep_req("U", "<= 0.0.1"),dep_req("a-sys", ">= 0.0.2, <= 0.0.6"),dep_req("c3", "<= 0.0.3"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("Z")], &reg, None);
+}
+
+#[cargo_test]
+fn public_dependency_skipping_in_backtracking_12() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("x", "0.0.5")),
+        pkg!(("x", "0.0.4")),
+        pkg!(("C", "0.0.2") => [dep_req_kind("x", "*", Kind::Normal, true),]),
+        pkg!(("C", "0.0.0") => [dep("bad"),]),
+        pkg!(("B", "0.0.4") => [dep("bad"),]),
+        pkg!(("B", "0.0.2") => [dep_req_kind("C", "*", Kind::Normal, true),dep_req("x", "= 0.0.4"),]),
+        pkg!(("B", "0.0.1") => [dep("bad"),]),
+        pkg!("A" => [dep("B"),dep("C"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("A")], &reg, None);
+}
+
+#[cargo_test]
+fn public_dependency_skipping_in_backtracking_13() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("A", "4.15.1")),
+        pkg!(("A", "8.5.6")),
+        pkg!(("A", "15.4.0")),
+        pkg!("B" => [dep_req("A", ">= 8.5.6"),]),
+        pkg!("C" => [dep_req_kind("A", "<= 8.5.6", Kind::Normal, true),]),
+        pkg!(("W-sys", "6.3.8") => [
+            dep_req("A", "= 4.15.1"),
+            dep_req_kind("C", "*", Kind::Normal, true),
+        ]),
+        pkg!(("W-sys", "12.3.13")),
+        pkg!(("W-sys", "18.1.12")),
+        pkg!("X" => [dep_req("W-sys", "<= 6.3.8"),]),
+        pkg!("Y" => [
+            dep_req_kind("A", "= 8.5.6", Kind::Normal, true),
+            dep_req_kind("B", "*", Kind::Normal, true),
+            dep_req_kind("X", "*", Kind::Normal, true),
+        ]),
+        pkg!("Z" => [
+            dep("W-sys"),
+            dep_req_kind("Y", "*", Kind::Normal, true),
+        ]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("Z")], &reg, None);
+}
+
+#[cargo_test]
 fn public_sat_topological_order() {
     let input = vec![
         pkg!(("a", "0.0.1")),

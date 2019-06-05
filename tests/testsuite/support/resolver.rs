@@ -739,8 +739,7 @@ pub fn registry_strategy(
         any::<Index>(),
         raw_version_range,
         0..=1,
-        Just(false),
-        // TODO: ^ this needs to be set back to `any::<bool>()` and work before public & private dependencies can stabilize
+        any::<bool>(),
     );
 
     fn order_index(a: Index, b: Index, size: usize) -> (usize, usize) {

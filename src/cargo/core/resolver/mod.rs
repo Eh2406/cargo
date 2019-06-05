@@ -431,28 +431,41 @@ fn activate_deps_loop(
                                             // we try our dep.
 
                                             match x {
-                                                // TODO: need to think how this interacts with public dependencies
-                                                (p, PublicDependency(r)) if r == pid => {
+                                                (p, PublicDependency(r, e)) if r == pid => {
                                                     if p == r {
-                                                        unimplemented!("case 1");
                                                         None
                                                     } else {
                                                         Some((
                                                             p,
-                                                            PublicDependency(parent.package_id()),
+                                                            PublicDependency(
+                                                                parent.package_id(),
+                                                                e && dep.is_public(),
+                                                            ),
                                                         ))
                                                     }
                                                 }
-                                                (p, PublicDependency(r)) if p == pid => {
+                                                (p, PublicDependency(r, e)) if p == pid => {
                                                     // `new_dep` can not be resolved if we are exported.
                                                     // We will be exported if we are selected.
-                                                    Some((parent.package_id(), PublicDependency(r)))
+                                                    Some((
+                                                        parent.package_id(),
+                                                        PublicDependency(r, e && dep.is_public()),
+                                                    ))
                                                 }
-                                                (_p, PubliclyExports(r)) if r == pid => {
-                                                    unimplemented!("case 3")
+                                                (p, PubliclyExports(r)) if r == pid => {
+                                                    // somthing somthing somthing
+
+                                                    if p == r {
+                                                        None
+                                                    } else {
+                                                        Some((
+                                                            p,
+                                                            PubliclyExports(parent.package_id()),
+                                                        ))
+                                                    }
                                                 }
-                                                (p, PubliclyExports(_r)) if p == pid => {
-                                                    unimplemented!("case 4")
+                                                (p, PubliclyExports(r)) if p == pid => {
+                                                    Some((parent.package_id(), PubliclyExports(r)))
                                                 }
                                                 (p, _) if p == pid => None,
                                                 _ => Some(x),
@@ -503,22 +516,41 @@ fn activate_deps_loop(
                                         .filter_map(|x| {
                                             use ConflictReason::*;
                                             match x {
-                                                // TODO: need to think how this interacts with public dependencies
-                                                (_p, PublicDependency(r)) if r == pid => {
-                                                    unimplemented!("case 1")
+                                                (p, PublicDependency(r, e)) if r == pid => {
+                                                    if p == r {
+                                                        None
+                                                    } else {
+                                                        Some((
+                                                            p,
+                                                            PublicDependency(
+                                                                parent.package_id(),
+                                                                e && dep.is_public(),
+                                                            ),
+                                                        ))
+                                                    }
                                                 }
-                                                (p, PublicDependency(r)) if p == pid => {
+                                                (p, PublicDependency(r, e)) if p == pid => {
                                                     // `other_dep` can not be resolved if we are exported.
                                                     // We will be exported if we are selected.
                                                     // So we can not be activated if `other_parent` can see `parent`.
-                                                    Some((parent.package_id(), PublicDependency(r)))
+                                                    Some((
+                                                        parent.package_id(),
+                                                        PublicDependency(r, e && dep.is_public()),
+                                                    ))
                                                 }
                                                 (p, PubliclyExports(r)) if r == pid => {
                                                     // somthing somthing somthing
-                                                    Some((p, PubliclyExports(parent.package_id())))
+                                                    if p == r {
+                                                        None
+                                                    } else {
+                                                        Some((
+                                                            p,
+                                                            PubliclyExports(parent.package_id()),
+                                                        ))
+                                                    }
                                                 }
-                                                (p, PubliclyExports(_r)) if p == pid => {
-                                                    unimplemented!("case 4")
+                                                (p, PubliclyExports(r)) if p == pid => {
+                                                    Some((parent.package_id(), PubliclyExports(r)))
                                                 }
                                                 (p, ref rel) if p == pid => {
                                                     Some((other_parent, rel.clone()))

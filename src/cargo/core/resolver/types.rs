@@ -60,6 +60,9 @@ impl ResolverProgress {
                 config.shell().status("Resolving", "dependency graph...")?;
             }
         }
+        if self.ticks % 1000 == 0 {
+            assert!(self.start.elapsed() - self.deps_time < Duration::from_secs(90));
+        }
         #[cfg(debug_assertions)]
         {
             // The largest test in our suite takes less then 5000 ticks
@@ -258,7 +261,7 @@ pub enum ConflictReason {
     // TODO: needs more info for `activation_error`
     // TODO: needs more info for `find_candidate`
     /// pub dep error
-    PublicDependency(PackageId),
+    PublicDependency(PackageId, bool),
     PubliclyExports(PackageId),
 }
 
@@ -285,7 +288,7 @@ impl ConflictReason {
     }
 
     pub fn is_public_dependency(&self) -> bool {
-        if let ConflictReason::PublicDependency(_) = *self {
+        if let ConflictReason::PublicDependency(_, _) = *self {
             return true;
         }
         if let ConflictReason::PubliclyExports(_) = *self {
@@ -296,7 +299,7 @@ impl ConflictReason {
 
     pub fn other_pid(&self) -> Option<PackageId> {
         match self {
-            ConflictReason::PublicDependency(p) => Some(*p),
+            ConflictReason::PublicDependency(p, _) => Some(*p),
             ConflictReason::PubliclyExports(p) => Some(*p),
             _ => None,
         }
