@@ -163,11 +163,12 @@ impl Context {
                     max = std::cmp::max(max, self.is_active(*name)?);
                     max = std::cmp::max(
                         max,
-                        self.public_dependency
-                            .as_ref()
-                            .unwrap()
-                            .can_add_item(id, *name, *is_public, &self.parents)
-                            .ok()??,
+                        self.public_dependency.as_ref().unwrap().can_add_item_b(
+                            id,
+                            *name,
+                            *is_public,
+                            &self.parents,
+                        )?,
                     );
                 }
                 ConflictReason::PubliclyExports(name) => {
@@ -390,6 +391,16 @@ impl PublicDependency {
                 }
             }
         }
+        self.inner
+            .entry(candidate_pid)
+            .or_default()
+            .entry(candidate_pid.name())
+            .or_insert((candidate_pid, age));
+        self.inner
+            .entry(candidate_pid)
+            .or_default()
+            .entry(parent_pid.name())
+            .or_insert((parent_pid, age));
     }
     pub fn can_add_edge(
         &self,
@@ -409,7 +420,7 @@ impl PublicDependency {
         // `b_id` as visible to its parents but also all of its existing
         // publicly exported dependencies.
         for t in self.publicly_exports(b_id) {
-            self.can_add_item(t, parent, is_public, parents)
+            self.can_add_item_a(t, parent, is_public, parents)
                 .map_err(|e| {
                     if t == b_id {
                         (e, None)
@@ -420,13 +431,46 @@ impl PublicDependency {
         }
         Ok(())
     }
-    pub fn can_add_item(
+    pub fn can_add_item_a(
         &self,
         t: PackageId,
         parent: PackageId,
         is_public: bool,
         parents: &Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>>,
-    ) -> Result<Option<ContextAge>, (PackageId, ConflictReason)> {
+    ) -> Result<(), (PackageId, ConflictReason)> {
+        let mut stack = vec![(
+            parent,
+            if is_public {
+                PublicContextAge::JustPublic(0)
+            } else {
+                PublicContextAge::JustPrivate(0)
+            },
+        )];
+        // for each (transitive) parent that can newly see `t`
+        while let Some((p, public)) = stack.pop() {
+            // TODO: dont look at the same thing more then once
+            if let Some(o) = self.inner.get(&p).and_then(|x| x.get(&t.name())) {
+                if o.0 != t {
+                    // the (transitive) parent can already see a different version by `t`s name.
+                    // So, adding `b` will cause `p` to have a public dependency conflict on `t`.
+                    return Err((o.0, ConflictReason::PublicDependency(parent, is_public)));
+                }
+            }
+            // if `b` was a private dependency of `p` then `p` parents can't see `t` thru `p`
+            if public.is_public() {
+                // if it was public, then we add all of `p`s parents to be checked
+                stack.extend(parents.parents_of(p));
+            }
+        }
+        Ok(())
+    }
+    pub fn can_add_item_b(
+        &self,
+        t: PackageId,
+        parent: PackageId,
+        is_public: bool,
+        parents: &Graph<PackageId, Rc<Vec<(Dependency, ContextAge)>>>,
+    ) -> Option<ContextAge> {
         let mut is_constrained = None;
         let mut stack = vec![(
             0,
@@ -443,16 +487,13 @@ impl PublicDependency {
         while let Some((path_age, (p, public))) = stack.pop() {
             // TODO: dont look at the same thing more then once
             if let Some(o) = self.inner.get(&p).and_then(|x| x.get(&t.name())) {
-                if o.0 != t {
-                    // the (transitive) parent can already see a different version by `t`s name.
-                    // So, adding `b` will cause `p` to have a public dependency conflict on `t`.
-                    return Err((o.0, ConflictReason::PublicDependency(parent, is_public)));
-                }
-                let path_age = std::cmp::max(path_age, public.private_age());
-                let total_age = std::cmp::max(path_age, o.1.private_age());
-                if *is_constrained.get_or_insert(total_age) > total_age {
-                    // we found one that can jump-back further so replace the out.
-                    is_constrained = Some(total_age);
+                if o.0 == t {
+                    let path_age = std::cmp::max(path_age, public.private_age());
+                    let total_age = std::cmp::max(path_age, o.1.private_age());
+                    if *is_constrained.get_or_insert(total_age) > total_age {
+                        // we found one that can jump-back further so replace the out.
+                        is_constrained = Some(total_age);
+                    }
                 }
             }
             // if `b` was a private dependency of `p` then `p` parents can't see `t` thru `p`
@@ -462,6 +503,6 @@ impl PublicDependency {
                 stack.extend(parents.parents_of(p).map(|g| (path_age, g)));
             }
         }
-        Ok(is_constrained)
+        is_constrained
     }
 }

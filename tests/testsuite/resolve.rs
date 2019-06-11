@@ -662,6 +662,57 @@ fn public_dependency_skipping_in_backtracking_13() {
 }
 
 #[cargo_test]
+fn public_dependency_skipping_in_backtracking_14() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("aA", "3.0.0")),
+        pkg!(("aA", "2.0.5")),
+        pkg!(("aA", "2.0.4")),
+        pkg!(("aA", "2.0.3")),
+        pkg!(("aA", "2.0.1") => [dep("bad"),]),
+        pkg!(("aA", "0.0.5")),
+        pkg!(("aA", "0.0.3")),
+        pkg!(("aA", "0.0.2")),
+        pkg!(("aA", "0.0.0")),
+        pkg!("a-sys" => [dep_req("aA", "<= 0.0.5"),]),
+        pkg!("a" => [dep_req_kind("aA", "<= 2.0.2", Kind::Normal, true),]),
+        pkg!("A-" => [dep("a"),dep("a-sys"),dep_req("aA", ">= 2.0.1"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("A-")], &reg, None);
+}
+
+#[cargo_test]
+fn public_dependency_skipping_in_backtracking_15() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("a", "0.0.8")),
+        pkg!(("a", "0.0.7")),
+        pkg!(("a", "0.0.6")),
+        pkg!(("a", "0.0.4")),
+        pkg!("b" => [dep_req_kind("a", "*", Kind::Normal, true),]),
+        pkg!("M" => [dep("b"),dep_req("a", "= 0.0.8"),]),
+        pkg!(("Q", "0.0.7") => [dep("b"),dep_req("a", "<= 0.0.7"),]),
+        pkg!(("Q", "0.0.6") => [dep("bad"),]),
+        pkg!(("Q", "0.0.5") => [dep("bad"),]),
+        pkg!(("Q", "0.0.2") => [dep("bad"),]),
+        pkg!("Z" => [
+            dep("M"),
+            dep("Q"),
+            dep_req("a", "<= 0.0.7"),
+        ]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("Z")], &reg, None);
+}
+
+#[cargo_test]
 fn public_sat_topological_order() {
     let input = vec![
         pkg!(("a", "0.0.1")),
