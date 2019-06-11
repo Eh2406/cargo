@@ -373,7 +373,7 @@ fn activate_deps_loop(
                 all_features: false,
                 uses_default_features: dep.uses_default_features(),
             };
-            trace!(
+            println!(
                 "{}[{}]>{} trying {}",
                 parent.name(),
                 cur,
@@ -606,7 +606,7 @@ fn activate_deps_loop(
                     // Otherwise we're guaranteed to fail and were not here for
                     // error messages, so we skip work and don't push anything
                     // onto our stack.
-                    if !has_past_conflicting_dep || activate_for_error_message {
+                    if !has_past_conflicting_dep {
                         if let Some((mut frame, _)) = newly_activated {
                             frame.just_for_error_messages = has_past_conflicting_dep;
                             remaining_deps.push(frame);
@@ -1018,7 +1018,14 @@ fn find_candidate(
     // the cause of that backtrack, so we do not update it.
     let age = if !backtracked {
         // we dont have abnormal situations. So we can ask `cx` for how far back we need to go.
-        cx.is_conflicting(Some(parent.package_id()), conflicting_activations)
+        let a = cx.is_conflicting(Some(parent.package_id()), conflicting_activations);
+        assert!(
+            a.is_some(),
+            "{}: {:?}",
+            parent.package_id(),
+            conflicting_activations
+        );
+        a
     } else {
         None
     };
