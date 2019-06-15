@@ -381,7 +381,11 @@ impl PublicDependency {
                     im_rc::hashmap::Entry::Vacant(v) => {
                         // The (transitive) parent does not have anything by `c`s name,
                         // so we add `c`.
-                        v.insert((c, age));
+                        if public.is_public() {
+                            v.insert((c, age));
+                        } else {
+                            v.insert((c, PublicContextAge::JustPrivate(age.private_age())));
+                        }
                     }
                 }
                 // if `candidate_pid` was a private dependency of `p` then `p` parents can't see `c` thru `p`
@@ -395,12 +399,10 @@ impl PublicDependency {
             .entry(candidate_pid)
             .or_default()
             .entry(candidate_pid.name())
-            .or_insert((candidate_pid, age));
-        self.inner
-            .entry(candidate_pid)
-            .or_default()
-            .entry(parent_pid.name())
-            .or_insert((parent_pid, age));
+            .or_insert((
+                candidate_pid,
+                PublicContextAge::JustPrivate(age.private_age()),
+            ));
     }
     pub fn can_add_edge(
         &self,

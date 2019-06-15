@@ -373,7 +373,7 @@ fn activate_deps_loop(
                 all_features: false,
                 uses_default_features: dep.uses_default_features(),
             };
-            println!(
+            trace!(
                 "{}[{}]>{} trying {}",
                 parent.name(),
                 cur,
@@ -432,7 +432,14 @@ fn activate_deps_loop(
 
                                             match x {
                                                 (p, PublicDependency(r, e)) if r == pid => {
-                                                    if p == r {
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(
+                                                            p,
+                                                            &PublicDependency(r, e),
+                                                        )
+                                                    {
+                                                        Some((p, PublicDependency(r, e)))
+                                                    } else if p == r {
                                                         None
                                                     } else {
                                                         Some((
@@ -447,15 +454,30 @@ fn activate_deps_loop(
                                                 (p, PublicDependency(r, e)) if p == pid => {
                                                     // `new_dep` can not be resolved if we are exported.
                                                     // We will be exported if we are selected.
-                                                    Some((
-                                                        parent.package_id(),
-                                                        PublicDependency(r, e && dep.is_public()),
-                                                    ))
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(
+                                                            p,
+                                                            &PublicDependency(r, e),
+                                                        )
+                                                    {
+                                                        Some((p, PublicDependency(r, e)))
+                                                    } else {
+                                                        Some((
+                                                            parent.package_id(),
+                                                            PublicDependency(
+                                                                r,
+                                                                e && dep.is_public(),
+                                                            ),
+                                                        ))
+                                                    }
                                                 }
                                                 (p, PubliclyExports(r)) if r == pid => {
                                                     // somthing somthing somthing
-
-                                                    if p == r {
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(p, &PubliclyExports(r))
+                                                    {
+                                                        Some((p, PubliclyExports(r)))
+                                                    } else if p == r {
                                                         None
                                                     } else {
                                                         Some((
@@ -465,7 +487,16 @@ fn activate_deps_loop(
                                                     }
                                                 }
                                                 (p, PubliclyExports(r)) if p == pid => {
-                                                    Some((parent.package_id(), PubliclyExports(r)))
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(p, &PubliclyExports(r))
+                                                    {
+                                                        Some((p, PubliclyExports(r)))
+                                                    } else {
+                                                        Some((
+                                                            parent.package_id(),
+                                                            PubliclyExports(r),
+                                                        ))
+                                                    }
                                                 }
                                                 (p, _) if p == pid => None,
                                                 _ => Some(x),
@@ -489,7 +520,7 @@ fn activate_deps_loop(
                         if let Some(known_related_bad_deps) =
                             past_conflicting_activations.dependencies_conflicting_with(pid)
                         {
-                            if let Some((other_parent, conflict)) = remaining_deps
+                            if let Some((other_parent, other_dep, conflict)) = remaining_deps
                                 .iter()
                                 // for deps related to us
                                 .filter(|&(_, ref other_dep)| {
@@ -498,7 +529,7 @@ fn activate_deps_loop(
                                 .filter_map(|(other_parent, other_dep)| {
                                     past_conflicting_activations
                                         .find_conflicting(&cx, &other_dep, Some(pid))
-                                        .map(|con| (other_parent, con))
+                                        .map(|con| (other_parent, other_dep, con))
                                 })
                                 .next()
                             {
@@ -517,14 +548,21 @@ fn activate_deps_loop(
                                             use ConflictReason::*;
                                             match x {
                                                 (p, PublicDependency(r, e)) if r == pid => {
-                                                    if p == r {
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(
+                                                            p,
+                                                            &PublicDependency(r, e),
+                                                        )
+                                                    {
+                                                        Some((p, PublicDependency(r, e)))
+                                                    } else if p == r {
                                                         None
                                                     } else {
                                                         Some((
                                                             p,
                                                             PublicDependency(
                                                                 parent.package_id(),
-                                                                e && dep.is_public(),
+                                                                e && other_dep.is_public(),
                                                             ),
                                                         ))
                                                     }
@@ -533,14 +571,30 @@ fn activate_deps_loop(
                                                     // `other_dep` can not be resolved if we are exported.
                                                     // We will be exported if we are selected.
                                                     // So we can not be activated if `other_parent` can see `parent`.
-                                                    Some((
-                                                        parent.package_id(),
-                                                        PublicDependency(r, e && dep.is_public()),
-                                                    ))
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(
+                                                            p,
+                                                            &PublicDependency(r, e),
+                                                        )
+                                                    {
+                                                        Some((p, PublicDependency(r, e)))
+                                                    } else {
+                                                        Some((
+                                                            parent.package_id(),
+                                                            PublicDependency(
+                                                                r,
+                                                                e && other_dep.is_public(),
+                                                            ),
+                                                        ))
+                                                    }
                                                 }
                                                 (p, PubliclyExports(r)) if r == pid => {
                                                     // somthing somthing somthing
-                                                    if p == r {
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(p, &PubliclyExports(r))
+                                                    {
+                                                        Some((p, PubliclyExports(r)))
+                                                    } else if p == r {
                                                         None
                                                     } else {
                                                         Some((
@@ -550,7 +604,16 @@ fn activate_deps_loop(
                                                     }
                                                 }
                                                 (p, PubliclyExports(r)) if p == pid => {
-                                                    Some((parent.package_id(), PubliclyExports(r)))
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(p, &PubliclyExports(r))
+                                                    {
+                                                        Some((p, PubliclyExports(r)))
+                                                    } else {
+                                                        Some((
+                                                            parent.package_id(),
+                                                            PubliclyExports(r),
+                                                        ))
+                                                    }
                                                 }
                                                 (p, ref rel) if p == pid => {
                                                     Some((other_parent, rel.clone()))
