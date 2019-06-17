@@ -420,9 +420,16 @@ fn activate_deps_loop(
                             {
                                 // If one of our deps is known unresolvable
                                 // then we will not succeed.
+                                // dbg!(&cx.parents, &cx.public_dependency);
                                 conflicting_activations.extend(
-                                    conflicting.iter().map(|(&p, r)| (p, r.clone())).filter_map(
-                                        |x| {
+                                    conflicting
+                                        .iter()
+                                        .map(|(&p, r)| (p, r.clone()))
+                                        .inspect(|(p, r)| {
+                                            // dbg!(p, r.clone(), cx.still_applies(*p, r));
+                                            assert!(cx.still_applies(*p, &r).is_some());
+                                        })
+                                        .filter_map(|x| {
                                             use ConflictReason::*;
                                             // How ever if we are part of the reason that
                                             // one of our deps conflicts then
@@ -464,10 +471,7 @@ fn activate_deps_loop(
                                                     } else {
                                                         Some((
                                                             parent.package_id(),
-                                                            PublicDependency(
-                                                                r,
-                                                                e && dep.is_public(),
-                                                            ),
+                                                            PublicDependency(r, true),
                                                         ))
                                                     }
                                                 }
@@ -501,8 +505,11 @@ fn activate_deps_loop(
                                                 (p, _) if p == pid => None,
                                                 _ => Some(x),
                                             }
-                                        },
-                                    ),
+                                        })
+                                        .inspect(|(p, r)| {
+                                            // dbg!(p, r.clone(), cx.still_applies(*p, r));
+                                            assert!(cx.still_applies(*p, &r).is_some());
+                                        }),
                                 );
 
                                 has_past_conflicting_dep = true;
@@ -540,10 +547,15 @@ fn activate_deps_loop(
                                 // but that is not how the cache is set up.
                                 // So we add the less general but much faster,
                                 // "our dep will not succeed if other dep's parent is activated".
+                                // dbg!(&cx.parents, &cx.public_dependency);
                                 conflicting_activations.extend(
                                     conflict
                                         .iter()
                                         .map(|(&p, r)| (p, r.clone()))
+                                        .inspect(|(p, r)| {
+                                            // dbg!(p, r.clone(), cx.still_applies(*p, r));
+                                            assert!(cx.still_applies(*p, &r).is_some());
+                                        })
                                         .filter_map(|x| {
                                             use ConflictReason::*;
                                             match x {
@@ -581,10 +593,7 @@ fn activate_deps_loop(
                                                     } else {
                                                         Some((
                                                             parent.package_id(),
-                                                            PublicDependency(
-                                                                r,
-                                                                e && other_dep.is_public(),
-                                                            ),
+                                                            PublicDependency(r, true),
                                                         ))
                                                     }
                                                 }
@@ -620,6 +629,10 @@ fn activate_deps_loop(
                                                 }
                                                 _ => Some(x),
                                             }
+                                        })
+                                        .inspect(|(p, r)| {
+                                            // dbg!(p, r.clone(), cx.still_applies(*p, r));
+                                            assert!(cx.still_applies(*p, &r).is_some());
                                         }),
                                 );
                                 has_past_conflicting_dep = true;

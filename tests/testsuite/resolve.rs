@@ -771,6 +771,55 @@ fn public_dependency_skipping_in_backtracking_18() {
 }
 
 #[cargo_test]
+fn public_dependency_skipping_in_backtracking_19() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("E", "0.0.3")),
+        pkg!(("E", "0.0.2")),
+        pkg!(("E", "0.0.1")),
+        pkg!(("D", "0.0.8")),
+        pkg!(("D", "0.0.7")),
+        pkg!(("D", "0.0.6")),
+        pkg!(("D", "0.0.5")),
+        pkg!(("D", "0.0.3")),
+        pkg!(("D", "0.0.2")),
+        pkg!(("D", "0.0.1")),
+        pkg!("C" => [dep_req_kind("D", "*", Kind::Normal, true),]),
+        pkg!("B" => [dep("C"),dep_req("D", ">= 0.0.6"),]),
+        pkg!("A" => [dep("B"),dep("C"),dep_req("D", "<= 0.0.5"),dep("E"),]),
+    ];
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("A")], &reg, None);
+}
+
+#[cargo_test]
+fn public_dependency_skipping_in_backtracking_20() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("I", "0.0.0")),
+        pkg!(("I", "0.0.1")),
+        pkg!(("H", "0.0.0")),
+        pkg!(("H", "0.0.1")),
+        pkg!(("H", "0.0.2")),
+        pkg!(("H", "5.0.0")),
+        pkg!("E" => [dep("I"),]),
+        pkg!("D" => [dep_req_kind("H", "<= 0.0.2", Kind::Normal, true),dep("E"),]),
+        pkg!(("C", "0.0.1")),
+        pkg!(("C", "0.0.2")),
+        pkg!(("B", "0.0.1") => [dep("bad"),]),
+        pkg!(("B", "0.0.2") => [dep("bad"),]),
+        pkg!(("B", "0.0.3") => [dep_req_kind("H", "= 5.0.0", Kind::Normal, true),]),
+        pkg!("A" => [dep("D"),dep("C"),dep("B"),]),
+    ];
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("A")], &reg, None);
+}
+
+#[cargo_test]
 fn public_sat_topological_order() {
     let input = vec![
         pkg!(("a", "0.0.1")),

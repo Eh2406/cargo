@@ -441,9 +441,27 @@ impl SatResolve {
 
         self.solver.assume(&assumption);
 
-        self.solver
+        let out = self
+            .solver
             .solve()
-            .expect("docs say it can't error in default config")
+            .expect("docs say it can't error in default config");
+
+        // if let Some(lits) = self.solver.model() {
+        //     let lits: HashSet<_> = lits
+        //         .iter()
+        //         .filter(|l| l.is_positive())
+        //         .map(|l| l.var())
+        //         .collect();
+        //     println!("used:");
+        //     for (p, v) in self.var_for_is_packages_used.iter() {
+        //         if lits.contains(v) {
+        //             println!("    {}", p);
+        //         }
+        //     }
+        //     println!();
+        // }
+
+        out
     }
 }
 

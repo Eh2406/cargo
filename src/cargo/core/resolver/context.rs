@@ -372,10 +372,12 @@ impl PublicDependency {
                             // and we can save some time by stopping now.
                             continue;
                         }
-                        if let Some(public_age) = age.public_age() {
-                            // Mark that `c` has now bean seen publicly
-                            let old_age = o.get().1.private_age();
-                            o.insert((c, PublicContextAge::Both(old_age, public_age)));
+                        if public.is_public() {
+                            if let Some(public_age) = age.public_age() {
+                                // Mark that `c` has now bean seen publicly
+                                let old_age = o.get().1.private_age();
+                                o.insert((c, PublicContextAge::Both(old_age, public_age)));
+                            }
                         }
                     }
                     im_rc::hashmap::Entry::Vacant(v) => {
