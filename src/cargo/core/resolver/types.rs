@@ -258,7 +258,8 @@ pub enum ConflictReason {
     // TODO: needs more info for `activation_error`
     // TODO: needs more info for `find_candidate`
     /// pub dep error
-    PublicDependency,
+    PublicDependency(PackageId, bool),
+    PubliclyExports(PackageId),
 }
 
 impl ConflictReason {
@@ -278,6 +279,16 @@ impl ConflictReason {
 
     pub fn is_required_dependency_as_features(&self) -> bool {
         if let ConflictReason::RequiredDependencyAsFeatures(_) = *self {
+            return true;
+        }
+        false
+    }
+
+    pub fn is_public_dependency(&self) -> bool {
+        if let ConflictReason::PublicDependency(_, _) = *self {
+            return true;
+        }
+        if let ConflictReason::PubliclyExports(_) = *self {
             return true;
         }
         false
