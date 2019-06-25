@@ -850,7 +850,11 @@ fn generalize_conflicting(
                     past_conflicting_activations
                         .find(
                             dep,
-                            &|id| {
+                            &|id, reason| {
+                                if reason.is_public_dependency() {
+                                    // TODO: need to think how this interacts with public dependencies
+                                    return None;
+                                }
                                 if id == other.package_id() {
                                     // we are imagining that we used other instead
                                     Some(backtrack_critical_age)
