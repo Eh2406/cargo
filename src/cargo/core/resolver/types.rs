@@ -60,6 +60,11 @@ impl ResolverProgress {
                 config.shell().status("Resolving", "dependency graph...")?;
             }
         }
+        failure::ensure!(
+            self.ticks < 50_000,
+            "got to 50_000 ticks in {:?}",
+            self.start.elapsed()
+        );
         #[cfg(debug_assertions)]
         {
             // The largest test in our suite takes less then 5000 ticks

@@ -225,7 +225,7 @@ fn activate_deps_loop(
 
         let just_here_for_the_error_messages = just_here_for_the_error_messages
             && past_conflicting_activations
-                .conflicting(&cx, &dep)
+                .conflicting(&cx, &dep, false)
                 .is_some();
 
         let mut remaining_candidates = RemainingCandidates::new(&candidates);
@@ -261,7 +261,7 @@ fn activate_deps_loop(
                 // It's our job here to backtrack, if possible, and find a
                 // different candidate to activate. If we can't find any
                 // candidates whatsoever then it's time to bail entirely.
-                trace!(
+                println!(
                     "{}[{}]>{} -- no candidates",
                     parent.name(),
                     cx.age,
@@ -372,7 +372,7 @@ fn activate_deps_loop(
                 all_features: false,
                 uses_default_features: dep.uses_default_features(),
             };
-            trace!(
+            println!(
                 "{}[{}]>{} trying {}",
                 parent.name(),
                 cx.age,
@@ -409,22 +409,96 @@ fn activate_deps_loop(
                             .remaining_siblings
                             .clone()
                             .filter_map(|(ref new_dep, _, _)| {
-                                past_conflicting_activations.conflicting(&cx, new_dep)
+                                past_conflicting_activations.conflicting(&cx, new_dep, false)
                             })
                             .next()
                         {
                             // If one of our deps is known unresolvable
                             // then we will not succeed.
-                            // How ever if we are part of the reason that
-                            // one of our deps conflicts then
-                            // we can make a stronger statement
-                            // because we will definitely be activated when
-                            // we try our dep.
+                            dbg!(
+                                &cx.age,
+                                &cx.parents,
+                                &cx.public_dependency,
+                                &conflicting_activations
+                            );
                             conflicting_activations.extend(
                                 conflicting
                                     .iter()
-                                    .filter(|&(p, _)| p != &pid)
-                                    .map(|(&p, r)| (p, r.clone())),
+                                    .map(|(&p, r)| (p, r.clone()))
+                                    .inspect(|(p, r)| {
+                                        dbg!(p, r.clone(), cx.still_applies(*p, r));
+                                        assert!(cx.still_applies(*p, &r).is_some());
+                                    })
+                                    .filter_map(|x| {
+                                        use ConflictReason::*;
+                                        // How ever if we are part of the reason that
+                                        // one of our deps conflicts then
+                                        // we can make a stronger statement
+                                        // because we will definitely be activated when
+                                        // we try our dep.
+
+                                        match x {
+                                            (p, PublicDependency(r, e)) if r == pid => {
+                                                if Some(cx.age)
+                                                    != cx.still_applies(p, &PublicDependency(r, e))
+                                                {
+                                                    Some((p, PublicDependency(r, e)))
+                                                } else if p == r {
+                                                    None
+                                                } else {
+                                                    unimplemented!("note shore yet 1");
+                                                    Some((
+                                                        p,
+                                                        PublicDependency(
+                                                            parent.package_id(),
+                                                            e && dep.is_public(),
+                                                        ),
+                                                    ))
+                                                }
+                                            }
+                                            (p, PublicDependency(r, e)) if p == pid => {
+                                                if Some(cx.age)
+                                                    != cx.still_applies(p, &PublicDependency(r, e))
+                                                {
+                                                    Some((p, PublicDependency(r, e)))
+                                                } else {
+                                                    unimplemented!("note shore yet 2");
+                                                    Some((
+                                                        parent.package_id(),
+                                                        PublicDependency(r, e && dep.is_public()),
+                                                    ))
+                                                }
+                                            }
+                                            (p, PubliclyExports(r)) if r == pid => {
+                                                if Some(cx.age)
+                                                    != cx.still_applies(p, &PubliclyExports(r))
+                                                {
+                                                    Some((p, PubliclyExports(r)))
+                                                } else if p == r {
+                                                    None
+                                                } else {
+                                                    unimplemented!("note shore yet 3");
+                                                    Some((p, PubliclyExports(parent.package_id())))
+                                                }
+                                            }
+                                            (p, PubliclyExports(r)) if p == pid => {
+                                                if Some(cx.age)
+                                                    != cx.still_applies(p, &PubliclyExports(r))
+                                                {
+                                                    Some((p, PubliclyExports(r)))
+                                                } else {
+                                                    unimplemented!("note shore yet 4");
+                                                    Some((parent.package_id(), PubliclyExports(r)))
+                                                }
+                                            }
+                                            (p, _) if p == pid => None,
+                                            _ => Some(x),
+                                        }
+                                    })
+                                    .inspect(|(p, r)| {
+                                        dbg!(p, r.clone(), cx.still_applies(*p, r));
+                                        assert!(cx.still_applies(*p, &r).is_some());
+                                    }),
                             );
 
                             has_past_conflicting_dep = true;
@@ -449,13 +523,11 @@ fn activate_deps_loop(
                                 })
                                 .filter_map(|(other_parent, other_dep)| {
                                     past_conflicting_activations
-                                        .find_conflicting(&cx, &other_dep, Some(pid))
+                                        .find_conflicting(&cx, &other_dep, Some(pid), false)
                                         .map(|con| (other_parent, con))
                                 })
                                 .next()
                             {
-                                let rel = conflict.get(&pid).unwrap().clone();
-
                                 // The conflict we found is
                                 // "other dep will not succeed if we are activated."
                                 // We want to add
@@ -463,13 +535,99 @@ fn activate_deps_loop(
                                 // but that is not how the cache is set up.
                                 // So we add the less general but much faster,
                                 // "our dep will not succeed if other dep's parent is activated".
+                                dbg!(
+                                    &cx.age,
+                                    &cx.parents,
+                                    &cx.public_dependency,
+                                    &conflicting_activations
+                                );
                                 conflicting_activations.extend(
                                     conflict
                                         .iter()
-                                        .filter(|&(p, _)| p != &pid)
-                                        .map(|(&p, r)| (p, r.clone())),
+                                        .map(|(&p, r)| (p, r.clone()))
+                                        .inspect(|(p, r)| {
+                                            // dbg!(p, r.clone(), cx.still_applies(*p, r));
+                                            assert!(cx.still_applies(*p, &r).is_some());
+                                        })
+                                        .filter_map(|x| {
+                                            use ConflictReason::*;
+                                            match x {
+                                                (p, PublicDependency(r, e)) if r == pid => {
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(
+                                                            p,
+                                                            &PublicDependency(r, e),
+                                                        )
+                                                    {
+                                                        Some((p, PublicDependency(r, e)))
+                                                    } else if p == r {
+                                                        None
+                                                    } else {
+                                                        unimplemented!("note shore yet 5");
+                                                        Some((
+                                                            p,
+                                                            PublicDependency(
+                                                                parent.package_id(),
+                                                                e && dep.is_public(),
+                                                            ),
+                                                        ))
+                                                    }
+                                                }
+                                                (p, PublicDependency(r, e)) if p == pid => {
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(
+                                                            p,
+                                                            &PublicDependency(r, e),
+                                                        )
+                                                    {
+                                                        Some((p, PublicDependency(r, e)))
+                                                    } else {
+                                                        unimplemented!("note shore yet 6");
+                                                        Some((
+                                                            parent.package_id(),
+                                                            PublicDependency(r, e),
+                                                        ))
+                                                    }
+                                                }
+                                                (p, PubliclyExports(r)) if r == pid => {
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(p, &PubliclyExports(r))
+                                                    {
+                                                        Some((p, PubliclyExports(r)))
+                                                    } else if p == r {
+                                                        None
+                                                    } else {
+                                                        unimplemented!("note shore yet 7");
+                                                        Some((
+                                                            p,
+                                                            PubliclyExports(parent.package_id()),
+                                                        ))
+                                                    }
+                                                }
+                                                (p, PubliclyExports(r)) if p == pid => {
+                                                    if Some(cx.age)
+                                                        != cx.still_applies(p, &PubliclyExports(r))
+                                                    {
+                                                        Some((p, PubliclyExports(r)))
+                                                    } else {
+                                                        unimplemented!("note shore yet 8");
+                                                        Some((
+                                                            parent.package_id(),
+                                                            PubliclyExports(r),
+                                                        ))
+                                                    }
+                                                }
+                                                (p, ref rel) if p == pid => {
+                                                    Some((other_parent, rel.clone()))
+                                                }
+                                                _ => Some(x),
+                                            }
+                                        })
+                                        .inspect(|(p, r)| {
+                                            // dbg!(p, r.clone(), cx.still_applies(*p, r));
+                                            assert!(cx.still_applies(*p, &r).is_some());
+                                        }),
                                 );
-                                conflicting_activations.insert(other_parent, rel);
                                 has_past_conflicting_dep = true;
                             }
                         }
@@ -850,15 +1008,17 @@ fn generalize_conflicting(
                         .find(
                             dep,
                             &|id, reason| {
-                                if reason.is_public_dependency() {
-                                    // TODO: need to think how this interacts with public dependencies
-                                    return None;
-                                }
-                                if id == other.package_id() {
+                                if id == other.package_id()
+                                    || reason.other_pid() == Some(other.package_id())
+                                {
+                                    if reason.is_public_dependency() {
+                                        // TODO: need to think how this interacts with public dependencies
+                                        return None;
+                                    }
                                     // we are imagining that we used other instead
                                     Some(backtrack_critical_age)
                                 } else {
-                                    cx.is_active(id)
+                                    cx.still_applies(id, reason)
                                 }
                             },
                             Some(other.package_id()),
@@ -937,6 +1097,14 @@ fn find_candidate(
         // If the `conflicting_activations` does not apply to `cx`, then something went very wrong
         // in building it. But we will just fall back to laboriously trying all possibilities witch
         // will give us the correct answer so only `assert` if there is a developer to debug it.
+        if a.is_none() {
+            dbg!(
+                &cx.age,
+                &cx.parents,
+                &cx.public_dependency,
+                &conflicting_activations
+            );
+        }
         debug_assert!(a.is_some());
         a
     } else {

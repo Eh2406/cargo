@@ -187,11 +187,12 @@ impl ConflictCache {
         cx: &Context,
         dep: &Dependency,
         must_contain: Option<PackageId>,
+        cant_handle_public_dependency: bool,
     ) -> Option<&ConflictMap> {
         let out = self.find(
             dep,
             &|id, reason| {
-                if reason.is_public_dependency() {
+                if cant_handle_public_dependency && reason.is_public_dependency() {
                     // TODO: need to think how this interacts with public dependencies
                     return None;
                 }
@@ -213,8 +214,13 @@ impl ConflictCache {
         }
         out
     }
-    pub fn conflicting(&self, cx: &Context, dep: &Dependency) -> Option<&ConflictMap> {
-        self.find_conflicting(cx, dep, None)
+    pub fn conflicting(
+        &self,
+        cx: &Context,
+        dep: &Dependency,
+        cant_handle_public_dependency: bool,
+    ) -> Option<&ConflictMap> {
+        self.find_conflicting(cx, dep, None, cant_handle_public_dependency)
     }
 
     /// Adds to the cache a conflict of the form:
@@ -226,7 +232,7 @@ impl ConflictCache {
             .or_insert_with(|| ConflictStoreTrie::Node(BTreeMap::new()))
             .insert(con.iter(), con.clone());
 
-        trace!(
+        println!(
             "{} = \"{}\" adding a skip {:?}",
             dep.package_name(),
             dep.version_req(),

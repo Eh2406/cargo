@@ -445,7 +445,12 @@ impl PublicDependency {
         // for each (transitive) parent that can newly see `t`
         while let Some((path_age, public_age, p)) = stack.pop() {
             // TODO: dont look at the same thing more then once
-            if let Some(o) = self.inner.get(&p).and_then(|x| x.get(&t.name())) {
+            if p == t {
+                if *is_constrained.get_or_insert(path_age) > path_age {
+                    // we found one that can jump-back further so replace the out.
+                    is_constrained = Some(path_age);
+                }
+            } else if let Some(o) = self.inner.get(&p).and_then(|x| x.get(&t.name())) {
                 if o.0 == t {
                     let total_age = std::cmp::max(path_age, o.1);
                     if *is_constrained.get_or_insert(total_age) > total_age {
