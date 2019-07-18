@@ -533,11 +533,9 @@ fn activate_deps_loop(
                                             use ConflictReason::*;
                                             match x {
                                                 (p, PublicDependency(r)) if r == pid => {
-                                                    unimplemented!("note shore yet 5");
                                                     if Some(cx.age)
                                                         != cx.still_applies(p, &PublicDependency(r))
                                                     {
-                                                        unimplemented!("note shore yet 5");
                                                         Some((p, PublicDependency(r)))
                                                     } else if p == r {
                                                         None
@@ -553,7 +551,6 @@ fn activate_deps_loop(
                                                     if Some(cx.age)
                                                         != cx.still_applies(p, &PublicDependency(r))
                                                     {
-                                                        unimplemented!("note shore yet 6");
                                                         Some((p, PublicDependency(r)))
                                                     } else {
                                                         Some((
@@ -566,7 +563,6 @@ fn activate_deps_loop(
                                                     if Some(cx.age)
                                                         != cx.still_applies(p, &PubliclyExports(r))
                                                     {
-                                                        unimplemented!("note shore yet 7");
                                                         Some((p, PubliclyExports(r)))
                                                     } else if p == r {
                                                         None
@@ -582,7 +578,6 @@ fn activate_deps_loop(
                                                     if Some(cx.age)
                                                         != cx.still_applies(p, &PubliclyExports(r))
                                                     {
-                                                        unimplemented!("note shore yet 8");
                                                         Some((p, PubliclyExports(r)))
                                                     } else {
                                                         Some((

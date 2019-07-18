@@ -236,7 +236,7 @@ fn pub_fail() {
         pkg!(("e", "0.0.6") => [dep_req_kind("a", "<= 0.0.4", Kind::Normal, true),]),
         pkg!(("kB", "0.0.3") => [dep_req("a", ">= 0.0.5"),dep("e"),]),
     ];
-    let reg = registry(input.clone());
+    let reg = registry(input);
     assert!(resolve_and_validated(vec![dep("kB")], &reg, None).is_err());
 }
 
@@ -368,6 +368,613 @@ fn public_dependency_skipping_in_backtracking() {
     let reg = registry(input);
 
     resolve_and_validated(vec![dep("C")], &reg, None).unwrap();
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_2() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("V", "0.0.5")),
+        pkg!(("V", "0.0.4")),
+        pkg!(("V", "0.0.3")),
+        pkg!(("V", "0.0.0")),
+        pkg!("U" => [dep_req_kind("V", "<= 0.0.4", Kind::Normal, true),]),
+        pkg!("T" => [dep_req_kind("U", "*", Kind::Normal, true),dep_req("V", "<= 0.0.3"),]),
+        pkg!("A" => [dep("T"),dep_req("V", ">= 0.0.1"),]),
+    ];
+
+    let reg = registry(input);
+    resolve_and_validated(vec![dep("A")], &reg, None).unwrap();
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_3() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("A", "3.0.0")),
+        pkg!(("A", "3.0.1")),
+        pkg!(("A", "3.0.2")),
+        pkg!(("A", "4.0.0")),
+        pkg!(("B", "2.0.0") => [dep_req("A", "= 3.0.0"),]),
+        pkg!(("C", "0.0.0")),
+        pkg!(("C", "0.0.1") => [dep_req_kind("A", "= 3.0.0", Kind::Normal, true),]),
+        pkg!("D" => [dep_req("A", ">= 3.0.1"),dep("C"),]),
+        pkg!("E" => [dep_req("B", "= 2.0.0"),dep("D"),]),
+    ];
+
+    let reg = registry(input);
+    resolve_and_validated(vec![dep("E")], &reg, None).unwrap();
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_4() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("a", "2.1.5")),
+        pkg!(("a", "7.3.9")),
+        pkg!(("a", "9.8.6")),
+        pkg!(("b", "1.9.2")),
+        pkg!(("b", "4.6.3")),
+        pkg!(("b", "8.2.0")),
+        pkg!("c" => [
+            dep_req_kind("b", "<= 4.6.3", Kind::Normal, true),
+        ]),
+        pkg!(("d", "6.3.7") => [
+            dep_req_kind("a", "= 7.3.9", Kind::Normal, true),
+        ]),
+        pkg!(("d", "6.7.7")),
+        pkg!(("d", "8.4.1") => [dep("bad"),]),
+        pkg!("e" => [
+            dep_req_kind("b", "*", Kind::Normal, true),
+            dep_req("c", "*"),
+            dep_req("d", "<= 6.7.7"),
+        ]),
+        pkg!("f" => [
+            dep("a"),
+            dep_req("b", ">= 4.6.3"),
+            dep("d"),
+            dep("e"),
+        ]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("f")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_5() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("Ib", "0.0.1")),
+        pkg!(("Ib", "0.0.2")),
+        pkg!(("Ib", "0.0.3")),
+        pkg!(("Ib", "0.0.6")),
+        pkg!(("Ib", "0.0.7")),
+        pkg!(("a", "0.0.0") => [dep("bad"),]),
+        pkg!(("a", "0.0.1") => [dep("bad"),]),
+        pkg!(("a", "0.0.2") => [dep_req_kind("Ib", "= 0.0.1", Kind::Normal, true),]),
+        pkg!("gI" => [dep_req("Ib", ">= 0.0.2"),dep("a"),]),
+        pkg!("ga" => [dep_req("Ib", "<= 0.0.3"),dep("gI"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("ga")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_6() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("oa", "0.0.8")),
+        pkg!(("oa", "0.0.7")),
+        pkg!(("oa", "0.0.5")),
+        pkg!(("oa", "0.0.2")),
+        pkg!(("n", "0.1.4")),
+        pkg!(("n", "0.1.2") => [dep("bad"),]),
+        pkg!(("n", "0.0.3") => [dep_req_kind("oa", "<= 0.0.5", Kind::Normal, true),]),
+        pkg!(("n", "0.0.0")),
+        pkg!("b" => [dep_req_kind("n", ">= 0.0.3", Kind::Normal, true),dep_req("oa", "= 0.0.2"),]),
+        pkg!("a" => [dep_req_kind("b", "*", Kind::Normal, true),dep_req("n", "<= 0.1.2"),]),
+        pkg!("A" => [dep("a"),dep_req("oa", ">= 0.0.5"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("A")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_7() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("sA", "0.0.7")),
+        pkg!(("sA", "0.0.5")),
+        pkg!(("sA", "0.0.4")),
+        pkg!(("sA", "0.0.3")),
+        pkg!(("g", "0.0.0") => [dep_req_kind("sA", ">= 0.0.2, <= 0.0.4", Kind::Normal, true),]),
+        pkg!(("a-sys", "0.0.9")),
+        pkg!(("a-sys", "0.0.8")),
+        pkg!(("a-sys", "0.0.6")),
+        pkg!(("a", "0.0.3") => [dep_req("g", "<= 0.0.0"),dep_req("sA", ">= 0.0.5, <= 0.0.7"),]),
+        pkg!(("a", "0.0.2") => [dep("bad"),]),
+        pkg!(("A-sys", "0.0.7") => [dep_req("a", ">= 0.0.1, <= 0.0.3"),dep_req("g", "<= 0.0.0"),]),
+        pkg!(("A-sys", "0.0.5") => [dep("bad"),]),
+        pkg!(("A-sys", "0.0.3") => [dep("bad"),]),
+        pkg!(("A-sys", "0.0.2") => [dep("bad"),]),
+        pkg!(("A", "0.0.0") => [dep_req("A-sys", "<= 0.0.7"),dep_req("a-sys", ">= 0.0.3, <= 0.0.9"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("A")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_8() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("aa", "0.0.6")),
+        pkg!(("aa", "0.0.5")),
+        pkg!(("aA", "0.0.5")),
+        pkg!(("aA", "0.0.0")),
+        pkg!(("a-", "0.0.7") => [dep_req_kind("aA", "= 0.0.0", Kind::Normal, true),]),
+        pkg!(("a-", "0.0.6") => [dep("bad"),]),
+        pkg!(("a-", "0.0.3") => [dep("bad"),]),
+        pkg!(("A", "0.0.0") => [dep("a-"),dep("aA"),dep("aa"),]),
+    ];
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("A")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_9() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("aA", "0.0.12")),
+        pkg!(("aA", "0.0.7")),
+        pkg!(("aA", "0.0.5")),
+        pkg!(("aA", "0.0.0")),
+        pkg!(("a-", "0.0.5") => [dep_req_kind("aA", ">= 0.0.7, <= 0.0.12", Kind::Normal, true),]),
+        pkg!(("a", "0.6.6") => [dep_req("a-", "<= 0.0.5"),dep_req("aA", "<= 0.0.7"),]),
+        pkg!(("A", "0.0.2") => [dep_req("a", ">= 0.0.1"),dep_req("aA", ">= 0.0.10, <= 0.0.12"),]),
+    ];
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("A")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_10() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("a", "18.13.2")),
+        pkg!(("a", "16.14.10")),
+        pkg!(("b", "18.2.6")),
+        pkg!(("b", "11.5.13")),
+        pkg!(("T-sys", "18.1.4")),
+        pkg!(("T-sys", "12.7.12")),
+        pkg!(("T-sys", "9.19.18")),
+        pkg!(("T-sys", "8.18.2") => [dep_req_kind("b", "= 18.2.6", Kind::Normal, true),]),
+        pkg!(("U", "14.1.0")),
+        pkg!(("U", "11.5.14")),
+        pkg!("V" => [dep_req("T-sys", "<= 9.19.18"),dep_req("b", "= 11.5.13"),]),
+        pkg!(("W", "14.8.7") => [dep("bad"),]),
+        pkg!(("W", "12.3.10") => [dep_req_kind("T-sys", ">= 12.7.12", Kind::Normal, true),]),
+        pkg!("X" => [dep_req_kind("U", "*", Kind::Normal, true),dep_req_kind("T-sys", "<= 9.19.18", Kind::Normal, true),]),
+        pkg!("Z" => [dep("X"),dep("W"),dep("V"),dep("a"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("Z")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_11() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("c3", "0.0.7")),
+        pkg!(("c3", "0.0.5")),
+        pkg!(("c3", "0.0.3")),
+        pkg!(("c3", "0.0.1")),
+        pkg!(("c0", "0.0.0") => [dep_req("c3", ">= 0.0.2"),]),
+        pkg!(("a-sys", "0.0.6") => [dep_req_kind("c3", "<= 0.0.5", Kind::Normal, true),]),
+        pkg!(("a-sys", "0.0.3")),
+        pkg!(("a-sys", "0.0.1")),
+        pkg!(("a-sys", "0.0.0")),
+        pkg!(("U", "0.0.1") => [dep_req("a-sys", "<= 0.0.6"),dep_req("c0", "<= 0.0.0"),dep_req("c3", ">= 0.0.1, <= 0.0.5"),]),
+        pkg!("Z" => [dep_req("U", "<= 0.0.1"),dep_req("a-sys", ">= 0.0.2, <= 0.0.6"),dep_req("c3", "<= 0.0.3"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("Z")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_12() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("x", "0.0.5")),
+        pkg!(("x", "0.0.4")),
+        pkg!(("C", "0.0.2") => [dep_req_kind("x", "*", Kind::Normal, true),]),
+        pkg!(("C", "0.0.0") => [dep("bad"),]),
+        pkg!(("B", "0.0.4") => [dep("bad"),]),
+        pkg!(("B", "0.0.2") => [dep_req_kind("C", "*", Kind::Normal, true),dep_req("x", "= 0.0.4"),]),
+        pkg!(("B", "0.0.1") => [dep("bad"),]),
+        pkg!("A" => [dep("B"),dep("C"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("A")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_13() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("A", "4.15.1")),
+        pkg!(("A", "8.5.6")),
+        pkg!(("A", "15.4.0")),
+        pkg!("B" => [dep_req("A", ">= 8.5.6"),]),
+        pkg!("C" => [dep_req_kind("A", "<= 8.5.6", Kind::Normal, true),]),
+        pkg!(("W-sys", "6.3.8") => [
+            dep_req("A", "= 4.15.1"),
+            dep_req_kind("C", "*", Kind::Normal, true),
+        ]),
+        pkg!(("W-sys", "12.3.13")),
+        pkg!(("W-sys", "18.1.12")),
+        pkg!("X" => [dep_req("W-sys", "<= 6.3.8"),]),
+        pkg!("Y" => [
+            dep_req_kind("A", "= 8.5.6", Kind::Normal, true),
+            dep_req_kind("B", "*", Kind::Normal, true),
+            dep_req_kind("X", "*", Kind::Normal, true),
+        ]),
+        pkg!("Z" => [
+            dep("W-sys"),
+            dep_req_kind("Y", "*", Kind::Normal, true),
+        ]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("Z")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_14() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("aA", "3.0.0")),
+        pkg!(("aA", "2.0.5")),
+        pkg!(("aA", "2.0.4")),
+        pkg!(("aA", "2.0.3")),
+        pkg!(("aA", "2.0.1") => [dep("bad"),]),
+        pkg!(("aA", "0.0.5")),
+        pkg!(("aA", "0.0.3")),
+        pkg!(("aA", "0.0.2")),
+        pkg!(("aA", "0.0.0")),
+        pkg!("a-sys" => [dep_req("aA", "<= 0.0.5"),]),
+        pkg!("a" => [dep_req_kind("aA", "<= 2.0.2", Kind::Normal, true),]),
+        pkg!("A-" => [dep("a"),dep("a-sys"),dep_req("aA", ">= 2.0.1"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("A-")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_15() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("a", "0.0.5")),
+        pkg!(("a", "0.0.7")),
+        pkg!(("a", "0.0.8")),
+        pkg!(("b", "13.9.4")),
+        pkg!(("b", "13.11.9")),
+        pkg!(("b", "18.6.19")),
+        pkg!(("c", "8.14.6")),
+        pkg!(("c", "11.5.18")),
+        pkg!(("c", "15.2.15") => [dep_req_kind("a", ">= 0.0.2, <= 0.0.10", Kind::Normal, true),]),
+        pkg!("d" => [dep_req("a", ">= 0.0.3, <= 0.0.5"),dep_req("c", ">= 11.5.18"),]),
+        pkg!("e" => [
+            dep_req("a", ">= 0.0.5, <= 0.0.8"),
+            dep_req("b", "<= 18.6.19"),
+            dep_req("c", "<= 15.2.15"),
+            dep("d"),
+        ]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("e")], &reg, None);
+}
+
+#[test]
+fn public_dependency_skipping_in_backtracking_16() {
+    // When backtracking due to a failed dependency, if Cargo is
+    // trying to be clever and skip irrelevant dependencies, care must
+    // the effects of pub dep must be accounted for.
+    let input = vec![
+        pkg!(("a", "6.14.3")),
+        pkg!(("a", "12.6.3")),
+        pkg!(("b", "3.0.12")),
+        pkg!(("b", "4.15.15")),
+        pkg!(("b", "5.12.7")),
+        pkg!(("b", "10.3.14")),
+        pkg!(("b", "10.5.15")),
+        pkg!(("c", "6.10.5")),
+        pkg!(("c", "8.3.7")),
+        pkg!("d" => [dep_req_kind("b", "<= 5.12.7", Kind::Normal, true),dep("a"),]),
+        pkg!(("e", "0.1.0") => [dep_req("b", ">= 10.3.14"),dep("d"),]),
+        pkg!(("e", "0.1.1") => [dep("bad"),]),
+        pkg!("z" => [dep("c"),dep("d"),dep("e"),]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("z")], &reg, None);
+}
+
+#[test]
+fn public_dependency_backtracking_just_on_activation() {
+    // The critical difference between a solution and not is whether "d" directly depends on "a v0.3" or "a v0.2".
+    // Confusingly, in ether case "a v0.3" will be in the graph, to satisfy "c"'s dependency.
+    // A backtracking algorithm that only looks at what packages are active may have a hard time
+    // noticing that the problem has ben fixed even though "a v0.3" is still active.
+    let input = vec![
+        pkg!(("a", "0.2.0")),
+        pkg!(("a", "0.3.0")),
+        pkg!(("a", "0.3.1") => [dep("bad"),]),
+        pkg!(("b", "1.0.0") => [dep("bad"),]),
+        pkg!(("b", "1.0.1") => [dep_req_kind("a", "0.2", Kind::Normal, true),]),
+        pkg!(("b", "1.1.0") => [dep("bad"),]),
+        pkg!("c" => [dep_req("a", "0.3.0"),]),
+        pkg!("d" => [dep_req("a", "<= 0.3.0"),dep("b"),dep("c"),]),
+    ];
+    let reg = registry(input.clone());
+
+    assert!(resolve_and_validated(vec![dep("d")], &reg, None).is_ok());
+
+    let package_to_yank = ("b", "1.1.0").to_pkgid();
+    let new_reg = registry(
+        input
+            .iter()
+            .cloned()
+            .filter(|x| package_to_yank != x.package_id())
+            .collect(),
+    );
+    assert_eq!(input.len(), new_reg.len() + 1);
+    // it should still build
+    assert!(resolve_and_validated(vec![dep("d")], &new_reg, None).is_ok());
+}
+
+#[test]
+fn public_dependency_backtracking_just_on_activation_2() {
+    // The problem is caused by the paths `I => H => D` and `I => D` having to match.
+    // However, `D` was previously activated by `I => G => E => D`.
+    // A activation algorithm that assumes that activation is idempotent may have a hard time
+    // noticing that it needs to short circuit at `H => D`.
+    let input = vec![
+        pkg!(("A", "0.0.0")),
+        pkg!(("A", "0.0.1")),
+        pkg!(("A", "0.0.2")),
+        pkg!(("B", "0.0.0")),
+        pkg!(("B", "0.0.1")),
+        pkg!(("B", "0.0.2")),
+        pkg!(("C", "0.0.0") => [
+            dep("A"),
+        ]),
+        pkg!(("C", "0.0.1")),
+        pkg!(("C", "0.0.2")),
+        pkg!(("D", "0.0.1") => [
+            dep_req_kind("B", "*", Kind::Normal, true),
+        ]),
+        pkg!(("D", "0.0.3")),
+        pkg!(("D", "0.0.9")),
+        pkg!(("D", "0.0.12")),
+        pkg!(("D", "0.0.13") => [
+            dep("C"),
+        ]),
+        pkg!(("D", "0.0.15") => [
+            dep("A"),
+        ]),
+        pkg!(("D", "0.0.17")),
+        pkg!("E" => [
+            dep_req_kind("C", "*", Kind::Normal, true),
+            dep_req("D", "= 0.0.13"),
+        ]),
+        pkg!("F" => [
+            dep_req("D", "<= 0.0.9"),
+        ]),
+        pkg!("G" => [
+            dep_req_kind("B", "*", Kind::Normal, true),
+            dep_req_kind("D", ">= 0.0.13, <= 0.0.15", Kind::Normal, true),
+            dep("E"),
+        ]),
+        pkg!("H" => [
+            dep_req_kind("D", ">= 0.0.12", Kind::Normal, true),
+            dep("G"),
+        ]),
+        pkg!("I" => [
+            dep("A"),
+            dep("B"),
+            dep("C"),
+            dep_req("D", "<= 0.0.13"),
+            dep("F"),
+            dep("H"),
+        ]),
+    ];
+
+    let reg = registry(input);
+    let _ = resolve_and_validated(vec![dep("I")], &reg, None);
+}
+
+#[test]
+fn public_dependency_cant_just_copy_conflict_reason() {
+    let input = vec![
+        pkg!(("A", "0.0.0")),
+        pkg!(("A", "0.0.1")),
+        pkg!(("A", "0.0.2")),
+        pkg!(("A", "0.0.3")),
+        pkg!(("A", "0.0.4")),
+        pkg!(("A", "0.0.5")),
+        pkg!(("B", "0.0.0")),
+        pkg!(("B", "0.0.1") => [
+            dep_req_kind("A", ">= 0.0.1", Kind::Normal, true),]),
+        pkg!(("C", "0.0.0")),
+        pkg!(("C", "0.0.1")),
+        pkg!(("C", "0.0.2")),
+        pkg!(("C", "0.0.3")),
+        pkg!(("C", "0.0.4") => [
+            dep_req_kind("A", "<= 0.0.2", Kind::Normal, true),]),
+        pkg!(("C", "0.0.5")),
+        pkg!(("C", "0.0.6")),
+        pkg!(("C", "0.0.7") => [
+            dep_req_kind("B", "*", Kind::Normal, true),]),
+        pkg!(("C", "0.0.9") => [
+            dep_req_kind("B", "*", Kind::Normal,true),]),
+        pkg!(("D", "0.0.0") => [
+            dep_req("A", ">= 0.0.1"),
+        ]),
+        pkg!(("D", "0.0.1") => [
+            dep_req("C", ">= 0.0.3, <= 0.0.7"),]),
+        pkg!(("E", "0.0.0") => [
+            dep_req_kind("C", ">= 0.0.2, <= 0.0.7",Kind::Normal, false),
+        ]),
+        pkg!(("E", "0.0.1") => [
+            dep_req("D", "*"),]),
+        pkg!("F" => [
+            dep_req_kind("C", ">= 0.0.2, <= 0.0.5", Kind::Normal, true),
+            dep_req_kind("E", "*", Kind::Normal, true),]),
+        pkg!(("G", "0.0.0")),
+        pkg!(("G", "0.0.1") => [
+            dep_req_kind("B", "*", Kind::Normal, true),
+        ]),
+        pkg!(("G", "0.0.2") => [
+            dep_req_kind("F", "*", Kind::Normal, true),]),
+        pkg!(("G", "0.0.3") => [
+            dep_req("A", ">= 0.0.1, <= 0.0.4"),]),
+        pkg!("H" => [
+            dep_req("C", ">= 0.0.5"),
+            dep("G"),]),
+        pkg!(("I", "0.0.0") => [dep("bad"),]),
+        pkg!(("I", "0.0.1") =>[
+            dep_req("C", "<= 0.0.1"),
+            dep_req_kind("G", "=0.0.2", Kind::Normal, true),
+        ]),
+        pkg!(("I", "0.0.2") => [dep("bad"),]),
+        pkg!(("I", "0.0.3") => [dep("bad"),]),
+        pkg!(("I", "0.0.4") => [dep("bad"),]),
+        pkg!(("I", "0.0.5") => [dep("bad"),]),
+        pkg!(("I", "0.0.6") => [dep("bad"),]),
+        pkg!("J" => [
+            dep_req_kind("C", "<= 0.0.6", Kind::Normal, true),
+            dep_req_kind("F", "*", Kind::Normal, true),
+            dep_req_kind("H", "*", Kind::Normal, true),
+            dep("I"),]),
+    ];
+    let reg = registry(input.clone());
+    let _ = resolve_and_validated(vec![dep("J")], &reg, None);
+}
+
+#[test]
+fn public_dependency_slow_case() {
+    let input = vec![
+        pkg!(("A", "0.0.6")),
+        pkg!(("A", "0.0.8")),
+        pkg!(("A", "0.0.11")),
+        pkg!(("A", "0.0.14")),
+        pkg!(("A", "0.0.15")),
+        pkg!(("B", "2.1.12")),
+        pkg!(("B", "2.9.19")),
+        pkg!(("B", "2.16.5")),
+        pkg!(("B", "5.7.0")),
+        pkg!(("B", "5.9.16") => [dep_req_kind("A", "*", Kind::Normal, true),]),
+        pkg!(("B", "6.9.2")),
+        pkg!(("B", "6.19.12")),
+        pkg!(("B", "8.17.8")),
+        pkg!(("B", "10.16.2")),
+        pkg!(("B", "10.18.7")),
+        pkg!(("B", "14.13.10")),
+        pkg!(("C", "0.0.0")),
+        pkg!(("C", "0.0.1")),
+        pkg!(("C", "0.0.3")),
+        pkg!(("C", "0.0.5")),
+        pkg!(("C", "5.0.0")),
+        pkg!(("C", "5.0.2")),
+        pkg!(("C", "5.19.8")),
+        pkg!(("C", "6.0.0")),
+        pkg!(("C", "6.11.8")),
+        pkg!(("C", "10.18.0") => [dep_req("B", ">= 2.9.19, <= 10.18.7"),]),
+        pkg!(("C", "12.0.1") => [dep_req_kind("B", "<= 14.13.10", Kind::Normal, true),]),
+        pkg!(("C", "12.0.2")),
+        pkg!(("D", "15.10.12") => [
+            dep_req("C", ">= 6.0.4, <= 10.18.0"),]),
+        pkg!(("E", "11.10.0") => [
+            dep_req("B", "<= 6.19.12"),
+            dep_req_kind("C", ">= 0.0.5, <= 5.0.2", Kind::Normal, false),
+        ]),
+        pkg!(("F", "16.12.19") => [
+            dep_req_kind("B", "<= 5.7.0", Kind::Normal, false),
+        ]),
+        pkg!(("G", "0.0.5") => [
+            dep_req_kind("A", ">= 0.0.7", Kind::Normal, false),
+            dep_req("C", ">= 12.0.1, <= 12.0.2"),
+        ]),
+        pkg!(("H", "0.0.8") => [
+            dep_req_kind("C", ">= 6.11.8,<= 10.18.0", Kind::Normal, true),
+            dep_req_kind("F", ">= 8.9.4", Kind::Normal, true),
+        ]),
+        pkg!(("I", "6.12.9") => [
+            dep_req("B", "<= 9.18.1"),
+            dep_req_kind("C", "<= 12.2.3", Kind::Normal, true),
+            dep_req_kind("E", ">= 4.3.13, <= 13.6.3", Kind::Normal, true),
+            dep_req("G", "<= 0.0.6"),]),
+        pkg!(("J", "0.0.0") => [dep("bad"),]),
+        pkg!(("J", "0.0.1") => [dep("bad"),]),
+        pkg!(("J", "0.0.2") => [
+            dep_req_kind("B", ">= 12.0.15", Kind::Normal, true),
+            dep_req_kind("C", ">= 0.0.5, <= 6.0.0", Kind::Normal, false),
+            dep_req("D", "*"),
+            dep_req_kind("I", "*", Kind::Normal, true),
+        ]),
+        pkg!(("J", "0.0.4") => [dep("bad"),]),
+        pkg!(("J", "0.0.6") => [dep("bad"),]),
+        pkg!(("J", "0.0.7") => [dep("bad"),]),
+        pkg!(("J", "0.0.9") => [dep("bad"),]),
+        pkg!(("J", "0.0.10") => [dep("bad"),]),
+        pkg!(("J", "0.0.11") => [dep("bad"),]),
+        pkg!(("J", "0.0.12") => [dep("bad"),]),
+        pkg!("K" => [
+            dep_req("A", ">= 0.0.8, <= 0.0.10"),
+            dep_req_kind("H", "= 0.0.8", Kind::Normal, true),
+            dep_req_kind("I", "*", Kind::Normal, false),
+            dep("J"),]),
+    ];
+
+    let reg = registry(input.clone());
+    let _ = resolve_and_validated(vec![dep("K")], &reg, None);
 }
 
 #[test]
