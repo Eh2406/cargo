@@ -50,6 +50,11 @@ impl<'cfg> Source for DirectorySource<'cfg> {
         Ok(())
     }
 
+    fn is_ready(&mut self, _: &Dependency) -> CargoResult<bool> {
+        // this is all synchronous code so
+        Ok(true)
+    }
+
     fn query(&mut self, dep: &Dependency, f: &mut dyn FnMut(Summary)) -> CargoResult<()> {
         let packages = self.packages.values().map(|p| &p.0);
         let matches = packages.filter(|pkg| dep.matches(pkg.summary()));

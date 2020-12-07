@@ -34,6 +34,9 @@ pub trait Source {
         deps: &mut dyn ExactSizeIterator<Item = Cow<'_, Dependency>>,
     ) -> CargoResult<()>;
 
+    /// Returns false if the `query` is not ready but may be avlilbe in the future
+    fn is_ready(&mut self, deps: &Dependency) -> CargoResult<bool>;
+
     /// Attempts to find the packages that match a dependency request.
     fn query(&mut self, dep: &Dependency, f: &mut dyn FnMut(Summary)) -> CargoResult<()>;
 
@@ -144,6 +147,11 @@ impl<'a, T: Source + ?Sized + 'a> Source for Box<T> {
         (**self).prefetch(deps)
     }
 
+    /// Forwards to `Source::is_ready`.
+    fn is_ready(&mut self, dep: &Dependency) -> CargoResult<bool> {
+        (**self).is_ready(dep)
+    }
+
     /// Forwards to `Source::query`.
     fn query(&mut self, dep: &Dependency, f: &mut dyn FnMut(Summary)) -> CargoResult<()> {
         (**self).query(dep, f)
@@ -217,6 +225,10 @@ impl<'a, T: Source + ?Sized + 'a> Source for &'a mut T {
         deps: &mut dyn ExactSizeIterator<Item = Cow<'_, Dependency>>,
     ) -> CargoResult<()> {
         (**self).prefetch(deps)
+    }
+
+    fn is_ready(&mut self, dep: &Dependency) -> CargoResult<bool> {
+        (**self).is_ready(dep)
     }
 
     fn query(&mut self, dep: &Dependency, f: &mut dyn FnMut(Summary)) -> CargoResult<()> {

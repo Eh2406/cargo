@@ -59,6 +59,15 @@ impl<'cfg> Source for ReplacedSource<'cfg> {
         Ok(())
     }
 
+    fn is_ready(&mut self, dep: &Dependency) -> CargoResult<bool> {
+        let (replace_with, to_replace) = (self.replace_with, self.to_replace);
+        let dep = dep.clone().map_source(to_replace, replace_with);
+
+        self.inner
+            .is_ready(&dep)
+            .chain_err(|| format!("failed to ready replaced source {}", self.to_replace))
+    }
+
     fn query(&mut self, dep: &Dependency, f: &mut dyn FnMut(Summary)) -> CargoResult<()> {
         let (replace_with, to_replace) = (self.replace_with, self.to_replace);
         let dep = dep.clone().map_source(to_replace, replace_with);

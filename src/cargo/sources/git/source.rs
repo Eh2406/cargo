@@ -91,6 +91,12 @@ impl<'cfg> Source for GitSource<'cfg> {
         Ok(())
     }
 
+    fn is_ready(&mut self, _: &Dependency) -> CargoResult<bool> {
+        // this is all synchronous code so we return `Ok(true)`
+        // Fixme: can we fetch asynchronously?
+        Ok(true)
+    }
+
     fn query(&mut self, dep: &Dependency, f: &mut dyn FnMut(Summary)) -> CargoResult<()> {
         let src = self
             .path_source

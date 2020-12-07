@@ -438,6 +438,10 @@ pub trait RegistryData {
         Ok(None)
     }
 
+    fn is_ready(&mut self, _dep: &Dependency) -> CargoResult<bool> {
+        Ok(true)
+    }
+
     fn update_index_file(&mut self, _root: &Path, _path: &Path) -> CargoResult<bool> {
         Ok(false)
     }
@@ -663,6 +667,10 @@ impl<'cfg> Source for RegistrySource<'cfg> {
         self.index
             .prefetch(deps, &self.yanked_whitelist, &mut *self.ops)?;
         Ok(())
+    }
+
+    fn is_ready(&mut self, dep: &Dependency) -> CargoResult<bool> {
+        self.ops.is_ready(&dep)
     }
 
     fn query(&mut self, dep: &Dependency, f: &mut dyn FnMut(Summary)) -> CargoResult<()> {

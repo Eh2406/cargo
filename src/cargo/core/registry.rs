@@ -19,6 +19,9 @@ pub trait Registry {
     /// Give source the opportunity to batch pre-fetch dependency information.
     fn prefetch(&mut self, deps: &mut dyn Iterator<Item = Cow<'_, Dependency>>) -> CargoResult<()>;
 
+    /// Returns false if the `query` is not ready but may be avlilbe in the future
+    fn is_ready(&mut self, deps: &Dependency) -> CargoResult<bool>;
+
     /// Attempt to find the packages that match a dependency request.
     fn query(
         &mut self,
@@ -536,6 +539,41 @@ impl<'cfg> Registry for PackageRegistry<'cfg> {
         }
 
         Ok(())
+    }
+
+    fn is_ready(&mut self, dep: &Dependency) -> CargoResult<bool> {
+        assert!(self.patches_locked);
+
+        // Note that we do not prefetch from overrides.
+        // We need to check for patches, as they may tell us to look at a different source.
+        // If they do, we want to make sure we don't access the original registry
+        // unnecessarily.
+        let mut patches = Vec::<Summary>::new();
+        if let Some(extra) = self.patches.get(dep.source_id().canonical_url()) {
+            patches.extend(
+                extra
+                    .iter()
+                    .filter(|s| dep.matches_ignoring_source(s.package_id()))
+                    .cloned(),
+            );
+        }
+
+        let source_id = if patches.len() == 1 && dep.is_locked() {
+            // Perform the prefetch from the patched-in source instead.
+            patches.remove(0).source_id()
+        } else {
+            // The code in `fn query` accesses the original source here, so we do too.
+            dep.source_id()
+        };
+
+        // Ensure the requested source_id is loaded
+        self.ensure_loaded(source_id, Kind::Normal).chain_err(|| {
+            anyhow::format_err!(
+                "failed to load source for dependency `{}`",
+                dep.package_name()
+            )
+        })?;
+        self.sources.get_mut(source_id).unwrap().is_ready(dep)
     }
 
     fn query(

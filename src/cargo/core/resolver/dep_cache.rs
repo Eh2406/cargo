@@ -23,6 +23,23 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
+/// Some registrys have to do network requests and so can return a "try again later" result.
+/// Termanology taken from futures, witch one day we may be able to use here.
+#[derive(Clone)]
+pub enum Poll<T> {
+    Ready(T),
+    Pending,
+}
+
+impl<T> Poll<T> {
+    pub fn expect(self, msg: &str) -> T {
+        match self {
+            Poll::Ready(t) => t,
+            Poll::Pending => panic!("{}", msg),
+        }
+    }
+}
+
 pub struct RegistryQueryer<'a> {
     pub registry: &'a mut (dyn Registry + 'a),
     replacements: &'a [(PackageIdSpec, Dependency)],
@@ -32,7 +49,7 @@ pub struct RegistryQueryer<'a> {
     /// specify minimum dependency versions to be used.
     minimal_versions: bool,
     /// a cache of `Candidate`s that fulfil a `Dependency`
-    registry_cache: HashMap<Dependency, Rc<Vec<Summary>>>,
+    registry_cache: HashMap<Dependency, Poll<Rc<Vec<Summary>>>>,
     /// a cache of `Dependency`s that are required for a `Summary`
     summary_cache: HashMap<
         (Option<PackageId>, Summary, ResolveOpts),
@@ -44,6 +61,8 @@ pub struct RegistryQueryer<'a> {
     config: Option<&'a Config>,
     /// Sources that we've already wared about possibly colliding in the future.
     warned_git_collisions: HashSet<SourceId>,
+
+    pub all_ready: bool,
 }
 
 impl<'a> RegistryQueryer<'a> {
@@ -64,6 +83,7 @@ impl<'a> RegistryQueryer<'a> {
             used_replacements: HashMap::new(),
             config,
             warned_git_collisions: HashSet::new(),
+            all_ready: true,
         }
     }
 
@@ -119,10 +139,15 @@ impl<'a> RegistryQueryer<'a> {
     /// any candidates are returned which match an override then the override is
     /// applied by performing a second query for what the override should
     /// return.
-    pub fn query(&mut self, dep: &Dependency) -> CargoResult<Rc<Vec<Summary>>> {
+    pub fn query(&mut self, dep: &Dependency) -> CargoResult<Poll<Rc<Vec<Summary>>>> {
         self.warn_colliding_git_sources(dep.source_id())?;
         if let Some(out) = self.registry_cache.get(dep).cloned() {
             return Ok(out);
+        }
+        if !self.registry.is_ready(dep)? {
+            self.registry_cache.insert(dep.clone(), Poll::Pending);
+
+            return Ok(Poll::Pending);
         }
 
         let mut ret = Vec::new();
@@ -231,7 +256,7 @@ impl<'a> RegistryQueryer<'a> {
             }
         });
 
-        let out = Rc::new(ret);
+        let out = Poll::Ready(Rc::new(ret));
 
         self.registry_cache.insert(dep.clone(), out.clone());
 
@@ -267,15 +292,21 @@ impl<'a> RegistryQueryer<'a> {
         // which can satisfy that dependency.
         let mut deps = deps
             .into_iter()
-            .map(|(dep, features)| {
-                let candidates = self.query(&dep).chain_err(|| {
+            .filter_map(|(dep, features)| {
+                match self.query(&dep).chain_err(|| {
                     anyhow::format_err!(
                         "failed to get `{}` as a dependency of {}",
                         dep.package_name(),
                         describe_path(&cx.parents.path_to_bottom(&candidate.package_id())),
                     )
-                })?;
-                Ok((dep, candidates, features))
+                }) {
+                    Ok(Poll::Ready(candidates)) => Some(Ok((dep, candidates, features))),
+                    Ok(Poll::Pending) => {
+                        self.all_ready = false;
+                        None
+                    }
+                    Err(e) => Some(Err(e)),
+                }
             })
             .collect::<CargoResult<Vec<DepInfo>>>()?;
 

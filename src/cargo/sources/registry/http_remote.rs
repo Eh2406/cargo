@@ -753,6 +753,11 @@ impl<'cfg> RegistryData for HttpRegistry<'cfg> {
         Ok(None)
     }
 
+    fn is_ready(&mut self, deps: &crate::sources::registry::Dependency) -> CargoResult<bool> {
+        // TODO: is it ready
+        Ok(true)
+    }
+
     fn index_path(&self) -> &Filesystem {
         // NOTE: I'm pretty sure this method is unnecessary.
         // The only place it is used is to set `.path` in `RegistryIndex`,

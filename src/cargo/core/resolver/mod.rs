@@ -128,7 +128,6 @@ pub fn resolve(
     config: Option<&Config>,
     check_public_visible_dependencies: bool,
 ) -> CargoResult<Resolve> {
-    let cx = Context::new(check_public_visible_dependencies);
     let _p = profile::start("resolving");
     let minimal_versions = match config {
         Some(config) => config.cli_unstable().minimal_versions,
@@ -144,9 +143,15 @@ pub fn resolve(
         )
         .chain_err(|| "failed to prefetch dependencies")?;
 
-    let mut registry =
-        RegistryQueryer::new(registry, replacements, try_to_use, minimal_versions, config);
-    let cx = activate_deps_loop(cx, &mut registry, summaries, config)?;
+    let (registry, cx) = loop {
+        let cx = Context::new(check_public_visible_dependencies);
+        let mut registry =
+            RegistryQueryer::new(registry, replacements, try_to_use, minimal_versions, config);
+        let cx = activate_deps_loop(cx, &mut registry, summaries, config)?;
+        if registry.all_ready {
+            break (registry, cx);
+        }
+    };
 
     let mut cksums = HashMap::new();
     for (summary, _) in cx.activations.values() {
@@ -866,6 +871,7 @@ fn generalize_conflicting(
             if let Some(others) = registry
                 .query(critical_parents_dep)
                 .expect("an already used dep now error!?")
+                .expect("an already used dep not ready!?")
                 .iter()
                 .rev() // the last one to be tried is the least likely to be in the cache, so start with that.
                 .map(|other| {

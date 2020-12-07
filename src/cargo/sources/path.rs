@@ -477,6 +477,11 @@ impl<'cfg> Source for PathSource<'cfg> {
         Ok(())
     }
 
+    fn is_ready(&mut self, _: &Dependency) -> CargoResult<bool> {
+        // this is all synchronous code so
+        Ok(true)
+    }
+
     fn query(&mut self, dep: &Dependency, f: &mut dyn FnMut(Summary)) -> CargoResult<()> {
         for s in self.packages.iter().map(|p| p.summary()) {
             if dep.matches(s) {
