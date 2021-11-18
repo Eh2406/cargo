@@ -1,8 +1,10 @@
 use cargo::core::compiler::{CompileKind, RustcTargetData};
+use cargo::core::registry::PackageRegistry;
 use cargo::core::resolver::features::{CliFeatures, FeatureOpts, FeatureResolver, ForceAllTargets};
 use cargo::core::resolver::{HasDevUnits, ResolveBehavior};
-use cargo::core::{PackageIdSpec, Workspace};
+use cargo::core::{PackageIdSpec, Source, Workspace};
 use cargo::ops::WorkspaceResolve;
+use cargo::sources::GitSource;
 use cargo::Config;
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::fs;
@@ -280,6 +282,62 @@ fn resolve_ws(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark of `resolve_with_previous` without a lockfile, which runs the resolver
+/// twice. This can be a major component of a regular fresh new cargo build.
+fn resolve_without_lockfile(c: &mut Criterion) {
+    setup();
+    let mut group = c.benchmark_group("resolve_without_lockfile");
+    for (ws_name, ws_root) in workspaces() {
+        let config = make_config(&ws_root);
+        // The resolver info is initialized only once in a lazy fashion. This
+        // allows criterion to skip this workspace if the user passes a filter
+        // on the command-line (like `cargo bench -- resolve_ws/tikv`).
+        //
+        // Due to the way criterion works, it tends to only run the inner
+        // iterator once, and we don't want to call `do_resolve` in every
+        // "step", since that would just be some useless work.
+        let mut lazy_info = None;
+        group.bench_function(&ws_name, |b| {
+            let ResolveInfo {
+                ws,
+                cli_features,
+                has_dev_units,
+                specs,
+                ..
+            } = lazy_info.get_or_insert_with(|| do_resolve(&config, &ws_root));
+            let previous = cargo::ops::load_pkg_lockfile(ws).unwrap().unwrap();
+
+            b.iter(|| {
+                let mut registry = PackageRegistry::new(&config).unwrap();
+                let _lock = config.acquire_package_cache_lock().unwrap();
+                for p in previous
+                    .iter()
+                    .chain(previous.unused_patches().iter().cloned())
+                {
+                    if p.source_id().is_git() {
+                        assert!(p.source_id().precise().is_some());
+                        let mut s = GitSource::new(p.source_id(), &config).unwrap();
+                        s.update().unwrap();
+                        registry.add_preloaded(Box::new(s));
+                    }
+                }
+                cargo::ops::resolve_with_previous(
+                    &mut registry,
+                    ws,
+                    cli_features,
+                    *has_dev_units,
+                    None,
+                    None,
+                    specs,
+                    true,
+                )
+                .unwrap();
+            })
+        });
+    }
+    group.finish();
+}
+
 /// Benchmark of the feature resolver.
 fn feature_resolver(c: &mut Criterion) {
     setup();
@@ -323,5 +381,10 @@ fn feature_resolver(c: &mut Criterion) {
 // reasonable default. Otherwise, the measurement time would need to be
 // changed per workspace. We wouldn't want to spend 60s on every workspace,
 // that would take too long and isn't necessary for the smaller workspaces.
-criterion_group!(benches, resolve_ws, feature_resolver);
+criterion_group!(
+    benches,
+    resolve_ws,
+    resolve_without_lockfile,
+    feature_resolver
+);
 criterion_main!(benches);
