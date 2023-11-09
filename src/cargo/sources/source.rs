@@ -58,13 +58,6 @@ pub trait Source {
         f: &mut dyn FnMut(Summary),
     ) -> Poll<CargoResult<()>>;
 
-    /// Gathers the result from [`Source::query`] as a list of [`Summary`] items
-    /// when they become available.
-    fn query_vec(&mut self, dep: &Dependency, kind: QueryKind) -> Poll<CargoResult<Vec<Summary>>> {
-        let mut ret = Vec::new();
-        self.query(dep, kind, &mut |s| ret.push(s)).map_ok(|_| ret)
-    }
-
     /// Ensure that the source is fully up-to-date for the current session on the next query.
     fn invalidate_cache(&mut self);
 

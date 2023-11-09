@@ -546,9 +546,10 @@ fn get_latest_dependency(
         }
         MaybeWorkspace::Other(query) => {
             let mut possibilities = loop {
-                match registry.query_vec(&query, QueryKind::Fuzzy) {
-                    std::task::Poll::Ready(res) => {
-                        break res?;
+                let mut res = vec![];
+                match registry.query(&query, QueryKind::Fuzzy, &mut |s| res.push(s))? {
+                    std::task::Poll::Ready(_) => {
+                        break res;
                     }
                     std::task::Poll::Pending => registry.block_until_ready()?,
                 }
@@ -664,9 +665,10 @@ fn select_package(
         MaybeWorkspace::Other(query) => {
             let possibilities = loop {
                 // Exact to avoid returning all for path/git
-                match registry.query_vec(&query, QueryKind::Exact) {
-                    std::task::Poll::Ready(res) => {
-                        break res?;
+                let mut res = vec![];
+                match registry.query(&query, QueryKind::Exact, &mut |s| res.push(s))? {
+                    std::task::Poll::Ready(_) => {
+                        break res;
                     }
                     std::task::Poll::Pending => registry.block_until_ready()?,
                 }
@@ -878,9 +880,10 @@ fn populate_available_features(
     }
 
     let possibilities = loop {
-        match registry.query_vec(&query, QueryKind::Fuzzy) {
-            std::task::Poll::Ready(res) => {
-                break res?;
+        let mut res = vec![];
+        match registry.query(&query, QueryKind::Fuzzy, &mut |s| res.push(s))? {
+            std::task::Poll::Ready(_) => {
+                break res;
             }
             std::task::Poll::Pending => registry.block_until_ready()?,
         }

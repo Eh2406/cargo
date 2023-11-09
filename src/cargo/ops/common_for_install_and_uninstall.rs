@@ -547,8 +547,9 @@ where
     }
 
     let deps = loop {
-        match source.query_vec(&dep, QueryKind::Exact)? {
-            Poll::Ready(deps) => break deps,
+        let mut out = vec![];
+        match source.query(&dep, QueryKind::Exact, &mut |s| out.push(s))? {
+            Poll::Ready(_) => break out,
             Poll::Pending => source.block_until_ready()?,
         }
     };
@@ -564,8 +565,9 @@ where
                         let msrv_dep =
                             Dependency::parse(dep.package_name(), None, dep.source_id())?;
                         let msrv_deps = loop {
-                            match source.query_vec(&msrv_dep, QueryKind::Exact)? {
-                                Poll::Ready(deps) => break deps,
+                            let mut out = vec![];
+                            match source.query(&msrv_dep, QueryKind::Exact, &mut |s| out.push(s))? {
+                                Poll::Ready(_) => break out,
                                 Poll::Pending => source.block_until_ready()?,
                             }
                         };

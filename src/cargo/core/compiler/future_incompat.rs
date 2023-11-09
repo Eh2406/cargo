@@ -330,8 +330,9 @@ fn get_updates(ws: &Workspace<'_>, package_ids: &BTreeSet<PackageId>) -> Option<
             let Ok(dep) = Dependency::parse(pkg_id.name(), None, pkg_id.source_id()) else {
                 return false;
             };
-            match source.query_vec(&dep, QueryKind::Exact) {
-                Poll::Ready(Ok(sum)) => {
+            let mut sum = vec![];
+            match source.query(&dep, QueryKind::Exact, &mut |s| sum.push(s)) {
+                Poll::Ready(Ok(_)) => {
                     summaries.push((pkg_id, sum));
                     false
                 }

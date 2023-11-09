@@ -140,14 +140,19 @@ impl<'a> RegistryQueryer<'a> {
                 dep.version_req()
             );
 
-            let mut summaries = match self.registry.query_vec(dep, QueryKind::Exact)? {
-                Poll::Ready(s) => s.into_iter(),
+            let mut summaries = vec![];
+            match self
+                .registry
+                .query(dep, QueryKind::Exact, &mut |s| summaries.push(s))?
+            {
+                Poll::Ready(_) => (),
                 Poll::Pending => {
                     self.registry_cache
                         .insert((dep.clone(), first_minimal_version), Poll::Pending);
                     return Poll::Pending;
                 }
             };
+            let mut summaries = summaries.into_iter();
             let s = summaries.next().ok_or_else(|| {
                 anyhow::format_err!(
                     "no matching package for override `{}` found\n\

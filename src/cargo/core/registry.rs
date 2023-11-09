@@ -26,11 +26,6 @@ pub trait Registry {
         f: &mut dyn FnMut(Summary),
     ) -> Poll<CargoResult<()>>;
 
-    fn query_vec(&mut self, dep: &Dependency, kind: QueryKind) -> Poll<CargoResult<Vec<Summary>>> {
-        let mut ret = Vec::new();
-        self.query(dep, kind, &mut |s| ret.push(s)).map_ok(|()| ret)
-    }
-
     fn describe_source(&self, source: SourceId) -> String;
     fn is_replaced(&self, source: SourceId) -> bool;
 
@@ -329,8 +324,9 @@ impl<'cfg> PackageRegistry<'cfg> {
                     .get_mut(dep.source_id())
                     .expect("loaded source not present");
 
-                let summaries = match source.query_vec(dep, QueryKind::Exact)? {
-                    Poll::Ready(deps) => deps,
+                let mut out = vec![];
+                let summaries = match source.query(dep, QueryKind::Exact, &mut |s| out.push(s))? {
+                    Poll::Ready(_) => out,
                     Poll::Pending => {
                         deps_pending.push(dep_remaining);
                         continue;
@@ -485,9 +481,11 @@ impl<'cfg> PackageRegistry<'cfg> {
         for &s in self.overrides.iter() {
             let src = self.sources.get_mut(s).unwrap();
             let dep = Dependency::new_override(dep.package_name(), s);
-            let mut results = ready!(src.query_vec(&dep, QueryKind::Exact))?;
-            if !results.is_empty() {
-                return Poll::Ready(Ok(Some(results.remove(0))));
+
+            let mut out = vec![];
+            ready!(src.query(&dep, QueryKind::Exact, &mut |s| out.push(s)))?;
+            if !out.is_empty() {
+                return Poll::Ready(Ok(Some(out.remove(0))));
             }
         }
         Poll::Ready(Ok(None))
@@ -877,14 +875,14 @@ fn summary_for_patch(
     // No summaries found, try to help the user figure out what is wrong.
     if let Some(locked) = locked {
         // Since the locked patch did not match anything, try the unlocked one.
-        let orig_matches =
-            ready!(source.query_vec(orig_patch, QueryKind::Exact)).unwrap_or_else(|e| {
+        let mut orig_matches = vec![];
+        ready!(source.query(orig_patch, QueryKind::Exact, &mut |s| orig_matches.push(s)))
+            .unwrap_or_else(|e| {
                 tracing::warn!(
                     "could not determine unlocked summaries for dep {:?}: {:?}",
                     orig_patch,
                     e
                 );
-                Vec::new()
             });
 
         let summary = ready!(summary_for_patch(orig_patch, &None, orig_matches, source))?;
@@ -896,15 +894,18 @@ fn summary_for_patch(
     // Try checking if there are *any* packages that match this by name.
     let name_only_dep = Dependency::new_override(orig_patch.package_name(), orig_patch.source_id());
 
-    let name_summaries =
-        ready!(source.query_vec(&name_only_dep, QueryKind::Exact)).unwrap_or_else(|e| {
-            tracing::warn!(
-                "failed to do name-only summary query for {:?}: {:?}",
-                name_only_dep,
-                e
-            );
-            Vec::new()
-        });
+    let mut name_summaries = vec![];
+    ready!(
+        source.query(&name_only_dep, QueryKind::Exact, &mut |s| name_summaries
+            .push(s))
+    )
+    .unwrap_or_else(|e| {
+        tracing::warn!(
+            "failed to do name-only summary query for {:?}: {:?}",
+            name_only_dep,
+            e
+        );
+    });
     let mut vers = name_summaries
         .iter()
         .map(|summary| summary.version())

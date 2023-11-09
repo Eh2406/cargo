@@ -359,9 +359,10 @@ fn check_crates_io<'a>(
         let query = Dependency::parse(*name, Some(&version_req), source_id)?;
         let possibilities = loop {
             // Exact to avoid returning all for path/git
-            match registry.query_vec(&query, QueryKind::Exact) {
-                task::Poll::Ready(res) => {
-                    break res?;
+            let mut res = vec![];
+            match registry.query(&query, QueryKind::Exact, &mut |s| res.push(s))? {
+                task::Poll::Ready(_) => {
+                    break res;
                 }
                 task::Poll::Pending => registry.block_until_ready()?,
             }
