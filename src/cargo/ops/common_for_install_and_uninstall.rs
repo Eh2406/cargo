@@ -547,13 +547,12 @@ where
     }
 
     let deps = loop {
-        let mut out = vec![];
-        match source.query(&dep, QueryKind::Exact, &mut |s| out.push(s))? {
-            Poll::Ready(_) => break out,
+        match source.query(&dep, QueryKind::Exact)? {
+            Poll::Ready(out) => break out,
             Poll::Pending => source.block_until_ready()?,
         }
     };
-    match deps.iter().max_by_key(|p| p.package_id()) {
+    match deps.max_by_key(|p| p.package_id()) {
         Some(summary) => {
             if let (Some(current), Some(msrv)) = (current_rust_version, summary.rust_version()) {
                 let msrv_req = msrv.to_caret_req();
@@ -565,9 +564,8 @@ where
                         let msrv_dep =
                             Dependency::parse(dep.package_name(), None, dep.source_id())?;
                         let msrv_deps = loop {
-                            let mut out = vec![];
-                            match source.query(&msrv_dep, QueryKind::Exact, &mut |s| out.push(s))? {
-                                Poll::Ready(_) => break out,
+                            match source.query(&msrv_dep, QueryKind::Exact)? {
+                                Poll::Ready(out) => break out,
                                 Poll::Pending => source.block_until_ready()?,
                             }
                         };

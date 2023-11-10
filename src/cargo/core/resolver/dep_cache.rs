@@ -113,18 +113,16 @@ impl<'a> RegistryQueryer<'a> {
             return out.map(Result::Ok);
         }
 
-        let mut ret = Vec::new();
-        let ready = self.registry.query(dep, QueryKind::Exact, &mut |s| {
-            if self.max_rust_version.is_none() || s.rust_version() <= self.max_rust_version.as_ref()
-            {
-                ret.push(s);
+        let mut ret = match self.registry.query(dep, QueryKind::Exact)? {
+            Poll::Ready(ret) => ret.filter(|s| {
+                self.max_rust_version.is_some() && s.rust_version() > self.max_rust_version.as_ref()
+            }),
+            Poll::Pending => {
+                self.registry_cache
+                    .insert((dep.clone(), first_minimal_version), Poll::Pending);
+                return Poll::Pending;
             }
-        })?;
-        if ready.is_pending() {
-            self.registry_cache
-                .insert((dep.clone(), first_minimal_version), Poll::Pending);
-            return Poll::Pending;
-        }
+        };
         for summary in ret.iter() {
             let mut potential_matches = self
                 .replacements
@@ -140,12 +138,8 @@ impl<'a> RegistryQueryer<'a> {
                 dep.version_req()
             );
 
-            let mut summaries = vec![];
-            match self
-                .registry
-                .query(dep, QueryKind::Exact, &mut |s| summaries.push(s))?
-            {
-                Poll::Ready(_) => (),
+            let mut summaries = match self.registry.query(dep, QueryKind::Exact)? {
+                Poll::Ready(res) => res.collect(),
                 Poll::Pending => {
                     self.registry_cache
                         .insert((dep.clone(), first_minimal_version), Poll::Pending);

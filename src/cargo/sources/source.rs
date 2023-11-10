@@ -55,8 +55,7 @@ pub trait Source {
         &mut self,
         dep: &Dependency,
         kind: QueryKind,
-        f: &mut dyn FnMut(Summary),
-    ) -> Poll<CargoResult<()>>;
+    ) -> Poll<CargoResult<impl Iterator<Item = Summary>>>;
 
     /// Ensure that the source is fully up-to-date for the current session on the next query.
     fn invalidate_cache(&mut self);
@@ -187,7 +186,7 @@ pub enum MaybePackage {
 }
 
 /// A blanket implementation forwards all methods to [`Source`].
-impl<'a, T: Source + ?Sized + 'a> Source for Box<T> {
+impl<T: Source + ?Sized> Source for Box<T> {
     fn source_id(&self) -> SourceId {
         (**self).source_id()
     }
@@ -208,9 +207,8 @@ impl<'a, T: Source + ?Sized + 'a> Source for Box<T> {
         &mut self,
         dep: &Dependency,
         kind: QueryKind,
-        f: &mut dyn FnMut(Summary),
-    ) -> Poll<CargoResult<()>> {
-        (**self).query(dep, kind, f)
+    ) -> Poll<CargoResult<impl Iterator<Item = Summary>>> {
+        (**self).query(dep, kind)
     }
 
     fn invalidate_cache(&mut self) {
@@ -281,8 +279,8 @@ impl<'a, T: Source + ?Sized + 'a> Source for &'a mut T {
         dep: &Dependency,
         kind: QueryKind,
         f: &mut dyn FnMut(Summary),
-    ) -> Poll<CargoResult<()>> {
-        (**self).query(dep, kind, f)
+    ) -> Poll<CargoResult<impl Iterator<Item = Summary>>> {
+        (**self).query(dep, kind)
     }
 
     fn invalidate_cache(&mut self) {

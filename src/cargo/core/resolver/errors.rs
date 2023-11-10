@@ -228,17 +228,16 @@ pub(super) fn activation_error(
     let mut new_dep = dep.clone();
     new_dep.set_version_req(OptVersionReq::Any);
 
-    let mut candidates = vec![];
-    loop {
-        match registry.query(&new_dep, QueryKind::Exact, &mut |s| candidates.push(s)) {
-            Poll::Ready(Ok(_)) => break,
+    let mut candidates = loop {
+        match registry.query(&new_dep, QueryKind::Exact) {
+            Poll::Ready(Ok(res)) => break res.collect(),
             Poll::Ready(Err(e)) => return to_resolve_err(e),
             Poll::Pending => match registry.block_until_ready() {
                 Ok(()) => continue,
                 Err(e) => return to_resolve_err(e),
             },
         }
-    }
+    };
 
     candidates.sort_unstable_by(|a, b| b.version().cmp(a.version()));
 
@@ -304,17 +303,16 @@ pub(super) fn activation_error(
     } else {
         // Maybe the user mistyped the name? Like `dep-thing` when `Dep_Thing`
         // was meant. So we try asking the registry for a `fuzzy` search for suggestions.
-        let mut candidates = vec![];
-        loop {
-            match registry.query(&new_dep, QueryKind::Fuzzy, &mut |s| candidates.push(s)) {
-                Poll::Ready(Ok(_)) => break,
+        let mut candidates = loop {
+            match registry.query(&new_dep, QueryKind::Fuzzy) {
+                Poll::Ready(Ok(res)) => break res.collect(),
                 Poll::Ready(Err(e)) => return to_resolve_err(e),
                 Poll::Pending => match registry.block_until_ready() {
                     Ok(()) => continue,
                     Err(e) => return to_resolve_err(e),
                 },
             }
-        }
+        };
 
         candidates.sort_unstable_by_key(|a| a.name());
         candidates.dedup_by(|a, b| a.name() == b.name());

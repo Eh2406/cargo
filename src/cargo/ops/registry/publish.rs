@@ -246,9 +246,8 @@ fn wait_for_publish(
             source.invalidate_cache();
             let summaries = loop {
                 // Exact to avoid returning all for path/git
-                let mut out = vec![];
-                match source.query(&query, QueryKind::Exact, &mut |s| out.push(s))? {
-                    std::task::Poll::Ready(_) => {
+                match source.query(&query, QueryKind::Exact)? {
+                    std::task::Poll::Ready(out) => {
                         break out;
                     }
                     std::task::Poll::Pending => source.block_until_ready()?,

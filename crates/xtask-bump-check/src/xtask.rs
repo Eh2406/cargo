@@ -357,15 +357,14 @@ fn check_crates_io<'a>(
         let current = member.version();
         let version_req = format!(">={current}");
         let query = Dependency::parse(*name, Some(&version_req), source_id)?;
-        let possibilities = loop {
+        let possibilities: Vec<_> = loop {
             // Exact to avoid returning all for path/git
-            let mut res = vec![];
-            match registry.query(&query, QueryKind::Exact, &mut |s| res.push(s))? {
-                task::Poll::Ready(_) => {
-                    break res;
+            match registry.query(&query, QueryKind::Exact)? {
+                task::Poll::Ready(res) => {
+                    break res.collect();
                 }
                 task::Poll::Pending => registry.block_until_ready()?,
-            }
+            };
         };
         if possibilities.is_empty() {
             tracing::trace!("dep `{name}` has no version greater than or equal to `{current}`");

@@ -23,8 +23,7 @@ pub trait Registry {
         &mut self,
         dep: &Dependency,
         kind: QueryKind,
-        f: &mut dyn FnMut(Summary),
-    ) -> Poll<CargoResult<()>>;
+    ) -> Poll<CargoResult<impl Iterator<Item = Summary>>>;
 
     fn describe_source(&self, source: SourceId) -> String;
     fn is_replaced(&self, source: SourceId) -> bool;
@@ -324,9 +323,8 @@ impl<'cfg> PackageRegistry<'cfg> {
                     .get_mut(dep.source_id())
                     .expect("loaded source not present");
 
-                let mut out = vec![];
-                let summaries = match source.query(dep, QueryKind::Exact, &mut |s| out.push(s))? {
-                    Poll::Ready(_) => out,
+                let summaries = match source.query(dep, QueryKind::Exact)? {
+                    Poll::Ready(out) => out.collect(),
                     Poll::Pending => {
                         deps_pending.push(dep_remaining);
                         continue;
@@ -482,10 +480,9 @@ impl<'cfg> PackageRegistry<'cfg> {
             let src = self.sources.get_mut(s).unwrap();
             let dep = Dependency::new_override(dep.package_name(), s);
 
-            let mut out = vec![];
-            ready!(src.query(&dep, QueryKind::Exact, &mut |s| out.push(s)))?;
-            if !out.is_empty() {
-                return Poll::Ready(Ok(Some(out.remove(0))));
+            let out: Option<_> = ready!(src.query(&dep, QueryKind::Exact))?.collect();
+            if out.is_some() {
+                return Poll::Ready(Ok(out));
             }
         }
         Poll::Ready(Ok(None))
@@ -573,8 +570,7 @@ impl<'cfg> Registry for PackageRegistry<'cfg> {
         &mut self,
         dep: &Dependency,
         kind: QueryKind,
-        f: &mut dyn FnMut(Summary),
-    ) -> Poll<CargoResult<()>> {
+    ) -> Poll<CargoResult<impl Iterator<Item = Summary>>> {
         assert!(self.patches_locked);
         let (override_summary, n, to_warn) = {
             // Look for an override and get ready to query the real source.
@@ -607,8 +603,7 @@ impl<'cfg> Registry for PackageRegistry<'cfg> {
                 match override_summary {
                     Some(summary) => (summary, 1, Some(patch)),
                     None => {
-                        f(patch);
-                        return Poll::Ready(Ok(()));
+                        return Poll::Ready(Ok([patch].into_iter()));
                     }
                 }
             } else {
@@ -643,29 +638,27 @@ impl<'cfg> Registry for PackageRegistry<'cfg> {
                     // If we don't have an override then we just ship
                     // everything upstairs after locking the summary
                     (None, Some(source)) => {
-                        for patch in patches.iter() {
-                            f(patch.clone());
-                        }
-
-                        // Our sources shouldn't ever come back to us with two
-                        // summaries that have the same version. We could,
-                        // however, have an `[patch]` section which is in use
-                        // to override a version in the registry. This means
-                        // that if our `summary` in this loop has the same
-                        // version as something in `patches` that we've
-                        // already selected, then we skip this `summary`.
                         let locked = &self.locked;
                         let all_patches = &self.patches_available;
-                        let callback = &mut |summary: Summary| {
-                            for patch in patches.iter() {
-                                let patch = patch.package_id().version();
-                                if summary.package_id().version() == patch {
-                                    return;
-                                }
-                            }
-                            f(lock(locked, all_patches, summary))
-                        };
-                        return source.query(dep, kind, callback);
+                        todo!();
+                        // return patches.iter().cloned().chain(
+                        //     // Our sources shouldn't ever come back to us with two
+                        //     // summaries that have the same version. We could,
+                        //     // however, have an `[patch]` section which is in use
+                        //     // to override a version in the registry. This means
+                        //     // that if our `summary` in this loop has the same
+                        //     // version as something in `patches` that we've
+                        //     // already selected, then we skip this `summary`.
+                        //     source.query(dep, kind).filter_map(|summary| {
+                        //         for patch in patches.iter() {
+                        //             let patch = patch.package_id().version();
+                        //             if summary.package_id().version() == patch {
+                        //                 return None;
+                        //             }
+                        //         }
+                        //         Some(lock(locked, all_patches, summary))
+                        //     }),
+                        // );
                     }
 
                     // If we have an override summary then we query the source
@@ -679,15 +672,9 @@ impl<'cfg> Registry for PackageRegistry<'cfg> {
                         }
                         let mut n = 0;
                         let mut to_warn = None;
-                        {
-                            let callback = &mut |summary| {
-                                n += 1;
-                                to_warn = Some(summary);
-                            };
-                            let pend = source.query(dep, kind, callback);
-                            if pend.is_pending() {
-                                return Poll::Pending;
-                            }
+                        for summary in ready!(source.query(dep, kind))? {
+                            n += 1;
+                            to_warn = Some(summary);
                         }
                         (override_summary, n, to_warn)
                     }
@@ -702,8 +689,7 @@ impl<'cfg> Registry for PackageRegistry<'cfg> {
         } else if let Some(summary) = to_warn {
             self.warn_bad_override(&override_summary, &summary)?;
         }
-        f(self.lock(override_summary));
-        Poll::Ready(Ok(()))
+        Poll::Ready(Ok([override_summary].into_iter()))
     }
 
     fn describe_source(&self, id: SourceId) -> String {
@@ -875,15 +861,15 @@ fn summary_for_patch(
     // No summaries found, try to help the user figure out what is wrong.
     if let Some(locked) = locked {
         // Since the locked patch did not match anything, try the unlocked one.
-        let mut orig_matches = vec![];
-        ready!(source.query(orig_patch, QueryKind::Exact, &mut |s| orig_matches.push(s)))
+        let orig_matches: Vec<_> = ready!(source.query(orig_patch, QueryKind::Exact))
             .unwrap_or_else(|e| {
                 tracing::warn!(
                     "could not determine unlocked summaries for dep {:?}: {:?}",
                     orig_patch,
                     e
                 );
-            });
+            })
+            .collect();
 
         let summary = ready!(summary_for_patch(orig_patch, &None, orig_matches, source))?;
 
@@ -894,18 +880,15 @@ fn summary_for_patch(
     // Try checking if there are *any* packages that match this by name.
     let name_only_dep = Dependency::new_override(orig_patch.package_name(), orig_patch.source_id());
 
-    let mut name_summaries = vec![];
-    ready!(
-        source.query(&name_only_dep, QueryKind::Exact, &mut |s| name_summaries
-            .push(s))
-    )
-    .unwrap_or_else(|e| {
-        tracing::warn!(
-            "failed to do name-only summary query for {:?}: {:?}",
-            name_only_dep,
-            e
-        );
-    });
+    let mut name_summaries: Vec<_> = ready!(source.query(&name_only_dep, QueryKind::Exact))
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                "failed to do name-only summary query for {:?}: {:?}",
+                name_only_dep,
+                e
+            );
+        })
+        .collect();
     let mut vers = name_summaries
         .iter()
         .map(|summary| summary.version())
