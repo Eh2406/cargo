@@ -798,6 +798,11 @@ mod tests {
         use std::hash::Hasher;
         use std::path::Path;
 
+        use snapbox::assert_data_eq;
+        use snapbox::str;
+        use snapbox::IntoData as _;
+
+        use crate::util::hex::short_hash;
         use crate::util::StableHasher;
 
         #[cfg(not(windows))]
@@ -849,8 +854,8 @@ mod tests {
         }
         #[cfg(windows)]
         {
-            assert_eq!(gen_hash(source_id), 6146331155906064276);
-            assert_eq!(crate::util::hex::short_hash(&source_id), "946fb2239f274c55");
+            assert_eq!(gen_hash(source_id), 16800501791958518123);
+            assert_eq!(crate::util::hex::short_hash(&source_id), "6b4900ee5d5f27e9");
         }
 
         let source_id = SourceId::for_path(path).unwrap();
@@ -858,7 +863,7 @@ mod tests {
         #[cfg(not(windows))]
         assert_eq!(crate::util::hex::short_hash(&source_id), "3f6f8846d5083fd2");
         #[cfg(windows)]
-        assert_eq!(crate::util::hex::short_hash(&source_id), "01e1e6c391813fb6");
+        assert_eq!(crate::util::hex::short_hash(&source_id), "bf4a63d6be9b0ae9");
 
         let source_id = SourceId::for_directory(path).unwrap();
         #[cfg(not(windows))]
@@ -868,8 +873,8 @@ mod tests {
         }
         #[cfg(windows)]
         {
-            assert_eq!(gen_hash(source_id), 10423446877655960172);
-            assert_eq!(crate::util::hex::short_hash(&source_id), "6c8ad69db585a790");
+            assert_eq!(gen_hash(source_id), 6146331155906064276);
+            assert_eq!(crate::util::hex::short_hash(&source_id), "946fb2239f274c55");
         }
     }
 
