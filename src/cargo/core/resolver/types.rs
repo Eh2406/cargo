@@ -184,7 +184,7 @@ impl std::hash::Hash for ActivationsKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.0.hash(state);
         self.1.hash(state);
-        // self.2.hash(state); // Packages that only differ by SourceId are rare enough to not be worth hashing
+        self.2.hash(state);
     }
 }
 
