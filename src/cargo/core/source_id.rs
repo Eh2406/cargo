@@ -11,7 +11,7 @@ use anyhow::Context as _;
 use serde::de;
 use serde::ser;
 use std::cmp::{self, Ordering};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::{self, Formatter};
 use std::hash::{self, Hash};
 use std::path::{Path, PathBuf};
@@ -22,7 +22,10 @@ use tracing::trace;
 use url::Url;
 
 static SOURCE_ID_CACHE: OnceLock<
-    Mutex<HashMap<&'static CanonicalSource, HashSet<&'static SourceInfo>>>,
+    Mutex<(
+        HashSet<&'static CanonicalSource>,
+        HashSet<&'static SourceInfo>,
+    )>,
 > = OnceLock::new();
 
 /// Unique identifier for a source of packages.
@@ -139,24 +142,16 @@ impl SourceId {
             .get_or_init(|| Default::default())
             .lock()
             .unwrap();
-        let canonical = cache
-            .get_key_value(&canonical)
-            .map(|(k, _)| *k)
-            .unwrap_or_else(|| {
-                let canonical = Box::leak(Box::new(canonical));
-                cache.insert(canonical, Default::default());
-                canonical
-            });
-        let source_info = cache
-            .get_mut(canonical)
-            .unwrap()
-            .get(&info)
-            .copied()
-            .unwrap_or_else(|| {
-                let info = Box::leak(Box::new(info));
-                cache.get_mut(canonical).unwrap().insert(info);
-                info
-            });
+        let canonical = cache.0.get(&canonical).copied().unwrap_or_else(|| {
+            let canonical = Box::leak(Box::new(canonical));
+            cache.0.insert(canonical);
+            canonical
+        });
+        let source_info = cache.1.get(&info).copied().unwrap_or_else(|| {
+            let info = Box::leak(Box::new(info));
+            cache.1.insert(info);
+            info
+        });
         SourceId {
             canonical,
             source_info,
@@ -170,13 +165,12 @@ impl SourceId {
             .lock()
             .unwrap();
         let source_info = cache
-            .get_mut(self.canonical)
-            .unwrap()
+            .1
             .get(&info)
             .cloned()
             .unwrap_or_else(|| {
                 let info = Box::leak(Box::new(info));
-                cache.get_mut(self.canonical).unwrap().insert(info);
+                cache.1.insert(info);
                 info
             });
         SourceId {
