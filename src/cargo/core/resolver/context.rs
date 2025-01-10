@@ -16,6 +16,7 @@ use tracing::debug;
 #[derive(Clone)]
 pub struct ResolverContext {
     pub age: ContextAge,
+    // TODO: jf: remove _old
     pub activations_old: Activations,
     /// list the features that are activated for each package
     pub resolve_features: im_rc::HashMap<PackageId, FeaturesSet, rustc_hash::FxBuildHasher>,
@@ -41,6 +42,10 @@ pub type ContextAge = usize;
 pub type Activations =
     im_rc::HashMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
 
+pub fn reset_activations_to_age(activations: &mut Activations, age: ContextAge) {
+    activations.retain(|_, (_, a)| *a <= age);
+}
+
 impl ResolverContext {
     pub fn new() -> ResolverContext {
         ResolverContext {
@@ -61,34 +66,39 @@ impl ResolverContext {
     /// Returns `true` if this summary with the given features is already activated.
     pub fn flag_activated(
         &mut self,
+        activations: &mut Activations,
         summary: &Summary,
         opts: &ResolveOpts,
         parent: Option<(&Summary, &Dependency)>,
     ) -> ActivateResult<bool> {
         let id = summary.package_id();
         let age: ContextAge = self.age;
-        // TODO: jf: remove _old
-        match self.activations_old.entry(id.as_activations_key()) {
-            im_rc::hashmap::Entry::Occupied(o) => {
+        match (
+            self.activations_old.entry(id.as_activations_key()),
+            activations.entry(id.as_activations_key()),
+        ) {
+            (im_rc::hashmap::Entry::Occupied(o_old), im_rc::hashmap::Entry::Occupied(o)) => {
+                assert_eq!(o_old.get(), o.get());
                 debug_assert_eq!(
                     &o.get().0,
                     summary,
                     "cargo does not allow two semver compatible versions"
                 );
             }
-            im_rc::hashmap::Entry::Vacant(v) => {
+            (im_rc::hashmap::Entry::Vacant(v_old), im_rc::hashmap::Entry::Vacant(v)) => {
                 if let Some(link) = summary.links() {
                     if self.links.insert(link, id).is_some() {
                         return Err(format_err!(
                             "Attempting to resolve a dependency with more than \
-                             one crate with links={}.\nThis will not build as \
-                             is. Consider rebuilding the .lock file.",
+                                 one crate with links={}.\nThis will not build as \
+                                 is. Consider rebuilding the .lock file.",
                             &*link
                         )
                         .into());
                     }
                 }
                 v.insert((summary.clone(), age));
+                v_old.insert((summary.clone(), age));
 
                 // If we've got a parent dependency which activated us, *and*
                 // the dependency has a different source id listed than the
@@ -109,8 +119,11 @@ impl ResolverContext {
                     if dep.source_id() != id.source_id() {
                         let key =
                             ActivationsKey::new(id.name(), id.version().into(), dep.source_id());
-                        // TODO: jf: remove _old
-                        let prev = self.activations_old.insert(key, (summary.clone(), age));
+                        let prev_old = self
+                            .activations_old
+                            .insert(key.clone(), (summary.clone(), age));
+                        let prev = activations.insert(key, (summary.clone(), age));
+                        assert_eq!(prev_old, prev);
                         if let Some((previous_summary, _)) = prev {
                             return Err(
                                 (previous_summary.package_id(), ConflictReason::Semver).into()
@@ -121,7 +134,11 @@ impl ResolverContext {
 
                 return Ok(false);
             }
+            _ => {
+                panic!()
+            }
         }
+
         debug!("checking if {} is already activated", summary.package_id());
         let empty_features = BTreeSet::new();
         match &opts.features {
@@ -153,11 +170,16 @@ impl ResolverContext {
     }
 
     /// If the package is active returns the `ContextAge` when it was added
-    pub fn is_active(&self, id: PackageId) -> Option<ContextAge> {
-        // TODO: jf: remove _old
-        self.activations_old
+    pub fn is_active(&self, activations: &Activations, id: PackageId) -> Option<ContextAge> {
+        let old = self
+            .activations_old
             .get(&id.as_activations_key())
-            .and_then(|(s, l)| if s.package_id() == id { Some(*l) } else { None })
+            .and_then(|(s, l)| if s.package_id() == id { Some(*l) } else { None });
+        let n = activations
+            .get(&id.as_activations_key())
+            .and_then(|(s, l)| if s.package_id() == id { Some(*l) } else { None });
+        assert_eq!(old, n);
+        old
     }
 
     /// Checks whether all of `parent` and the keys of `conflicting activations`
@@ -165,35 +187,38 @@ impl ResolverContext {
     /// If so returns the `ContextAge` when the newest one was added.
     pub fn is_conflicting(
         &self,
+        activations: &Activations,
         parent: Option<PackageId>,
         conflicting_activations: &ConflictMap,
     ) -> Option<usize> {
         let mut max = 0;
         if let Some(parent) = parent {
-            max = std::cmp::max(max, self.is_active(parent)?);
+            max = std::cmp::max(max, self.is_active(activations, parent)?);
         }
 
         for id in conflicting_activations.keys() {
-            max = std::cmp::max(max, self.is_active(*id)?);
+            max = std::cmp::max(max, self.is_active(activations, *id)?);
         }
         Some(max)
     }
 
     pub fn resolve_replacements(
         &self,
+        activations: &Activations,
         registry: &RegistryQueryer<'_>,
     ) -> HashMap<PackageId, PackageId> {
-        // TODO: jf: remove _old
-        self.activations_old
+        activations
             .values()
             .filter_map(|(s, _)| registry.used_replacement_for(s.package_id()))
             .collect()
     }
 
-    pub fn graph(&self) -> Graph<PackageId, std::collections::HashSet<Dependency>> {
+    pub fn graph(
+        &self,
+        activations: &Activations,
+    ) -> Graph<PackageId, std::collections::HashSet<Dependency>> {
         let mut graph: Graph<PackageId, std::collections::HashSet<Dependency>> = Graph::new();
-        // TODO: jf: remove _old
-        self.activations_old
+        activations
             .values()
             .for_each(|(r, _)| graph.add(r.package_id()));
         for i in self.parents.iter() {

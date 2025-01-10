@@ -59,13 +59,11 @@
 //! over the place.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use context::ContextAge;
+use context::{reset_activations_to_age, Activations};
 use tracing::{debug, trace};
-use types::ActivationsKey;
 
 use crate::core::PackageIdSpec;
 use crate::core::{Dependency, PackageId, Registry, Summary};
@@ -143,9 +141,10 @@ pub fn resolve(
     // Global cache of the reasons for each time we backtrack.
     let mut past_conflicting_activations = conflict_cache::ConflictCache::new();
 
-    let resolver_ctx = loop {
+    let (activations, resolver_ctx) = loop {
         let resolver_ctx = ResolverContext::new();
-        let resolver_ctx = activate_deps_loop(
+        // TODO: jf: claen up return type
+        let (activations, resolver_ctx) = activate_deps_loop(
             resolver_ctx,
             &mut registry,
             summaries,
@@ -154,7 +153,7 @@ pub fn resolve(
             &mut past_conflicting_activations,
         )?;
         if registry.reset_pending() {
-            break resolver_ctx;
+            break (activations, resolver_ctx);
         } else {
             registry.registry.block_until_ready()?;
         }
@@ -165,8 +164,9 @@ pub fn resolve(
         let cksum = summary.checksum().map(|s| s.to_string());
         cksums.insert(summary.package_id(), cksum);
     }
-    let graph = resolver_ctx.graph();
-    let replacements = resolver_ctx.resolve_replacements(&registry);
+    assert_eq!(resolver_ctx.activations_old, activations); // check now that we are done
+    let graph = resolver_ctx.graph(&activations);
+    let replacements = resolver_ctx.resolve_replacements(&activations, &registry);
     let features = resolver_ctx
         .resolve_features
         .iter()
@@ -207,15 +207,17 @@ fn activate_deps_loop(
     first_version: Option<VersionOrdering>,
     gctx: Option<&GlobalContext>,
     past_conflicting_activations: &mut conflict_cache::ConflictCache,
-) -> CargoResult<ResolverContext> {
+) -> CargoResult<(Activations, ResolverContext)> {
     let mut backtrack_stack = Vec::new();
     let mut remaining_deps = RemainingDeps::new();
+    let mut activations = Activations::default();
 
     // Activate all the initial summaries to kick off some work.
     for (summary, opts) in summaries {
         debug!("initial activation: {}", summary.package_id());
         let res = activate(
             &mut resolver_ctx,
+            &mut activations,
             registry,
             None,
             summary.clone(),
@@ -229,6 +231,7 @@ fn activate_deps_loop(
             Err(ActivateError::Conflict(_, _)) => panic!("bad error from activate"),
         }
     }
+    assert_eq!(resolver_ctx.activations_old, activations); // check that things are set up
 
     let mut printed = ResolverProgress::new();
 
@@ -264,7 +267,7 @@ fn activate_deps_loop(
 
         let just_here_for_the_error_messages = just_here_for_the_error_messages
             && past_conflicting_activations
-                .conflicting(&resolver_ctx, &dep)
+                .conflicting(&resolver_ctx, &activations, &dep)
                 .is_some();
 
         let mut remaining_candidates = RemainingCandidates::new(&candidates);
@@ -286,7 +289,11 @@ fn activate_deps_loop(
         let mut backtracked = false;
 
         loop {
-            let next = remaining_candidates.next(&mut conflicting_activations, &resolver_ctx);
+            let next = remaining_candidates.next(
+                &mut conflicting_activations,
+                &resolver_ctx,
+                &activations,
+            );
 
             let (candidate, has_another) = next.ok_or(()).or_else(|_| {
                 // If we get here then our `remaining_candidates` was just
@@ -321,6 +328,7 @@ fn activate_deps_loop(
                     past_conflicting_activations.insert(&dep, &conflicting_activations);
                     if let Some(c) = generalize_conflicting(
                         &resolver_ctx,
+                        &activations,
                         registry,
                         past_conflicting_activations,
                         &parent,
@@ -333,6 +341,7 @@ fn activate_deps_loop(
 
                 match find_candidate(
                     &resolver_ctx,
+                    &activations,
                     &mut backtrack_stack,
                     &parent,
                     backtracked,
@@ -344,6 +353,8 @@ fn activate_deps_loop(
                         // Reset all of our local variables used with the
                         // contents of `frame` to complete our backtrack.
                         resolver_ctx = frame.context;
+                        reset_activations_to_age(&mut activations, resolver_ctx.age);
+                        assert_eq!(resolver_ctx.activations_old, activations); // check that backtracking
                         remaining_deps = frame.remaining_deps;
                         remaining_candidates = frame.remaining_candidates;
                         parent = frame.parent;
@@ -417,12 +428,20 @@ fn activate_deps_loop(
             let first_version = None; // this is an indirect dependency
             let res = activate(
                 &mut resolver_ctx,
+                &mut activations,
                 registry,
                 Some((&parent, &dep)),
-                candidate,
+                candidate.clone(), // TODO: jf: remove clone
                 first_version,
                 &opts,
             );
+
+            assert_eq!(
+                resolver_ctx
+                    .activations_old
+                    .get(&candidate.package_id().as_activations_key()),
+                activations.get(&candidate.package_id().as_activations_key())
+            ); // check after activate
 
             let successfully_activated = match res {
                 // Success! We've now activated our `candidate` in our context
@@ -453,7 +472,11 @@ fn activate_deps_loop(
                                 .remaining_siblings
                                 .remaining()
                                 .find_map(|(ref new_dep, _, _)| {
-                                    past_conflicting_activations.conflicting(&resolver_ctx, new_dep)
+                                    past_conflicting_activations.conflicting(
+                                        &resolver_ctx,
+                                        &activations,
+                                        new_dep,
+                                    )
                                 })
                         {
                             // If one of our deps is known unresolvable
@@ -490,7 +513,12 @@ fn activate_deps_loop(
                                 .filter(|(_, other_dep)| known_related_bad_deps.contains(other_dep))
                                 .filter_map(|(other_parent, other_dep)| {
                                     past_conflicting_activations
-                                        .find_conflicting(&resolver_ctx, &other_dep, Some(pid))
+                                        .find_conflicting(
+                                            &resolver_ctx,
+                                            &activations,
+                                            &other_dep,
+                                            Some(pid),
+                                        )
                                         .map(|con| (other_parent, con))
                                 })
                                 .next()
@@ -532,6 +560,7 @@ fn activate_deps_loop(
                         just_here_for_the_error_messages || {
                             find_candidate(
                                 &resolver_ctx,
+                                &activations,
                                 &mut backtrack_stack.clone(),
                                 &parent,
                                 backtracked,
@@ -609,6 +638,8 @@ fn activate_deps_loop(
             // imprecision.
             if let Some(b) = backtrack {
                 resolver_ctx = b.context;
+                reset_activations_to_age(&mut activations, resolver_ctx.age);
+                assert_eq!(resolver_ctx.activations_old, activations); // check that backtracking
             }
         }
 
@@ -618,7 +649,7 @@ fn activate_deps_loop(
         // so loop back to the top of the function here.
     }
 
-    Ok(resolver_ctx)
+    Ok((activations, resolver_ctx))
 }
 
 /// Attempts to activate the summary `candidate` in the context `cx`.
@@ -629,6 +660,7 @@ fn activate_deps_loop(
 /// iterate through next.
 fn activate(
     cx: &mut ResolverContext,
+    activations: &mut Activations,
     registry: &mut RegistryQueryer<'_>,
     parent: Option<(&Summary, &Dependency)>,
     candidate: Summary,
@@ -646,7 +678,7 @@ fn activate(
             .insert(dep.clone());
     }
 
-    let activated = cx.flag_activated(&candidate, opts, parent)?;
+    let activated = cx.flag_activated(activations, &candidate, opts, parent)?;
 
     let candidate = match registry.replacement_summary(candidate_pid) {
         Some(replace) => {
@@ -655,7 +687,7 @@ fn activate(
             // does. TBH it basically cause panics in the test suite if
             // `parent` is passed through here and `[replace]` is otherwise
             // on life support so it's not critical to fix bugs anyway per se.
-            if cx.flag_activated(replace, opts, None)? && activated {
+            if cx.flag_activated(activations, replace, opts, None)? && activated {
                 return Ok(None);
             }
             trace!(
@@ -675,6 +707,7 @@ fn activate(
     };
 
     let now = Instant::now();
+
     let (used_features, deps) = &*registry.build_deps(
         cx,
         parent.map(|p| p.0.package_id()),
@@ -758,6 +791,7 @@ impl RemainingCandidates {
         &mut self,
         conflicting_prev_active: &mut ConflictMap,
         cx: &ResolverContext,
+        activations: &Activations,
     ) -> Option<(Summary, bool)> {
         for b in self.remaining.iter() {
             let b_id = b.package_id();
@@ -770,8 +804,17 @@ impl RemainingCandidates {
             //
             // Here we throw out our candidate if it's *compatible*, yet not
             // equal, to all previously activated versions.
-            // TODO: jf: remove _old
-            if let Some((a, _)) = cx.activations_old.get(&b_id.as_activations_key()) {
+            assert_eq!(
+                activations
+                    .get(&b_id.as_activations_key())
+                    .filter(|(_, age)| age <= &cx.age)
+                    .is_some(),
+                cx.activations_old.get(&b_id.as_activations_key()).is_some()
+            );
+            if let Some((a, _)) = activations
+                .get(&b_id.as_activations_key())
+                .filter(|(_, age)| age <= &cx.age)
+            {
                 if a != b {
                     conflicting_prev_active
                         .entry(a.package_id())
@@ -816,6 +859,8 @@ impl RemainingCandidates {
 /// It will add the new conflict to the cache if one is found.
 fn generalize_conflicting(
     cx: &ResolverContext,
+
+    activations: &Activations,
     registry: &mut RegistryQueryer<'_>,
     past_conflicting_activations: &mut conflict_cache::ConflictCache,
     parent: &Summary,
@@ -826,7 +871,7 @@ fn generalize_conflicting(
     let (backtrack_critical_age, backtrack_critical_id) = shortcircuit_max(
         conflicting_activations
             .keys()
-            .map(|&c| cx.is_active(c).map(|a| (a, c))),
+            .map(|&c| cx.is_active(activations, c).map(|a| (a, c))),
     )?;
     let backtrack_critical_reason: ConflictReason =
         conflicting_activations[&backtrack_critical_id].clone();
@@ -844,7 +889,9 @@ fn generalize_conflicting(
     for (critical_parent, critical_parents_deps) in
         cx.parents.edges(&backtrack_critical_id).filter(|(p, _)| {
             // it will only help backjump further if it is older then the critical_age
-            cx.is_active(**p).expect("parent not currently active!?") < backtrack_critical_age
+            cx.is_active(activations, **p)
+                .expect("parent not currently active!?")
+                < backtrack_critical_age
         })
     {
         for critical_parents_dep in critical_parents_deps.iter() {
@@ -869,7 +916,7 @@ fn generalize_conflicting(
                                     // we are imagining that we used other instead
                                     Some(backtrack_critical_age)
                                 } else {
-                                    cx.is_active(id)
+                                    cx.is_active(activations, id)
                                 }
                             },
                             Some(other.package_id()),
@@ -900,7 +947,10 @@ fn generalize_conflicting(
                     // the entire point is to find an older conflict, so let's make sure we did
                     let new_age = con
                         .keys()
-                        .map(|&c| cx.is_active(c).expect("not currently active!?"))
+                        .map(|&c| {
+                            cx.is_active(activations, c)
+                                .expect("not currently active!?")
+                        })
                         .max()
                         .unwrap();
                     assert!(
@@ -942,6 +992,7 @@ fn shortcircuit_max<I: Ord>(iter: impl Iterator<Item = Option<I>>) -> Option<I> 
 /// For several more detailed explanations of the logic here.
 fn find_candidate(
     cx: &ResolverContext,
+    activations: &Activations,
     backtrack_stack: &mut Vec<BacktrackFrame>,
     parent: &Summary,
     backtracked: bool,
@@ -960,15 +1011,21 @@ fn find_candidate(
         // If the `conflicting_activations` does not apply to `cx`,
         // we will just fall back to laboriously trying all possibilities witch
         // will give us the correct answer.
-        cx.is_conflicting(Some(parent.package_id()), conflicting_activations)
+        cx.is_conflicting(
+            activations,
+            Some(parent.package_id()),
+            conflicting_activations,
+        )
     } else {
         None
     };
 
     while let Some(mut frame) = backtrack_stack.pop() {
-        let next = frame
-            .remaining_candidates
-            .next(&mut frame.conflicting_activations, &frame.context);
+        let next = frame.remaining_candidates.next(
+            &mut frame.conflicting_activations,
+            &frame.context,
+            &activations,
+        );
         let Some((candidate, has_another)) = next else {
             continue;
         };
@@ -989,10 +1046,11 @@ fn find_candidate(
                 // above we use `cx` to determine that this is still going to be conflicting.
                 // but lets just double check.
                 debug_assert!(
-                    frame
-                        .context
-                        .is_conflicting(Some(parent.package_id()), conflicting_activations)
-                        == Some(age)
+                    frame.context.is_conflicting(
+                        activations,
+                        Some(parent.package_id()),
+                        conflicting_activations
+                    ) == Some(age)
                 );
                 continue;
             } else {
@@ -1000,7 +1058,11 @@ fn find_candidate(
                 // but lets just double check.
                 debug_assert!(frame
                     .context
-                    .is_conflicting(Some(parent.package_id()), conflicting_activations)
+                    .is_conflicting(
+                        activations,
+                        Some(parent.package_id()),
+                        conflicting_activations
+                    )
                     .is_none());
             }
         }

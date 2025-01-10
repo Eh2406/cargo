@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::trace;
 
+use super::context::Activations;
 use super::types::ConflictMap;
 use crate::core::resolver::ResolverContext;
 use crate::core::{Dependency, PackageId};
@@ -173,13 +174,19 @@ impl ConflictCache {
     pub fn find_conflicting(
         &self,
         cx: &ResolverContext,
+        activations: &Activations,
         dep: &Dependency,
         must_contain: Option<PackageId>,
     ) -> Option<&ConflictMap> {
-        let out = self.find(dep, &|id| cx.is_active(id), must_contain, usize::MAX);
+        let out = self.find(
+            dep,
+            &|id| cx.is_active(activations, id),
+            must_contain,
+            usize::MAX,
+        );
         if cfg!(debug_assertions) {
             if let Some(c) = &out {
-                assert!(cx.is_conflicting(None, c).is_some());
+                assert!(cx.is_conflicting(activations, None, c).is_some());
                 if let Some(f) = must_contain {
                     assert!(c.contains_key(&f));
                 }
@@ -187,8 +194,13 @@ impl ConflictCache {
         }
         out
     }
-    pub fn conflicting(&self, cx: &ResolverContext, dep: &Dependency) -> Option<&ConflictMap> {
-        self.find_conflicting(cx, dep, None)
+    pub fn conflicting(
+        &self,
+        cx: &ResolverContext,
+        activations: &Activations,
+        dep: &Dependency,
+    ) -> Option<&ConflictMap> {
+        self.find_conflicting(cx, activations, dep, None)
     }
 
     /// Adds to the cache a conflict of the form:
