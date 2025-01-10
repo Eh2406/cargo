@@ -164,7 +164,10 @@ pub fn resolve(
         let cksum = summary.checksum().map(|s| s.to_string());
         cksums.insert(summary.package_id(), cksum);
     }
-    assert_eq!(resolver_ctx.activations_old, activations); // check now that we are done
+    assert_eq!(resolver_ctx.activations_old.len(), activations.len()); // check now that we are done
+    for k in activations.keys() {
+        assert_eq!(resolver_ctx.activations_old.get(k), activations.get(k));
+    }
     let graph = resolver_ctx.graph(&activations);
     let replacements = resolver_ctx.resolve_replacements(&activations, &registry);
     let features = resolver_ctx
@@ -231,7 +234,10 @@ fn activate_deps_loop(
             Err(ActivateError::Conflict(_, _)) => panic!("bad error from activate"),
         }
     }
-    assert_eq!(resolver_ctx.activations_old, activations); // check that things are set up
+    assert_eq!(resolver_ctx.activations_old.len(), activations.len()); // check that things are set up
+    for k in activations.keys() {
+        assert_eq!(resolver_ctx.activations_old.get(k), activations.get(k));
+    }
 
     let mut printed = ResolverProgress::new();
 
@@ -354,7 +360,10 @@ fn activate_deps_loop(
                         // contents of `frame` to complete our backtrack.
                         resolver_ctx = frame.context;
                         reset_activations_to_age(&mut activations, resolver_ctx.age);
-                        assert_eq!(resolver_ctx.activations_old, activations); // check that backtracking
+                        assert_eq!(resolver_ctx.activations_old.len(), activations.len()); // check that backtracking
+                        for k in activations.keys() {
+                            assert_eq!(resolver_ctx.activations_old.get(k), activations.get(k));
+                        }
                         remaining_deps = frame.remaining_deps;
                         remaining_candidates = frame.remaining_candidates;
                         parent = frame.parent;
@@ -639,7 +648,10 @@ fn activate_deps_loop(
             if let Some(b) = backtrack {
                 resolver_ctx = b.context;
                 reset_activations_to_age(&mut activations, resolver_ctx.age);
-                assert_eq!(resolver_ctx.activations_old, activations); // check that backtracking
+                assert_eq!(resolver_ctx.activations_old.len(), activations.len()); // check that backtracking
+                for k in activations.keys() {
+                    assert_eq!(resolver_ctx.activations_old.get(k), activations.get(k));
+                }
             }
         }
 

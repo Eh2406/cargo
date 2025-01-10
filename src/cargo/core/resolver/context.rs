@@ -17,7 +17,7 @@ use tracing::debug;
 pub struct ResolverContext {
     pub age: ContextAge,
     // TODO: jf: remove _old
-    pub activations_old: Activations,
+    pub activations_old: ActivationsOld,
     /// list the features that are activated for each package
     pub resolve_features: im_rc::HashMap<PackageId, FeaturesSet, rustc_hash::FxBuildHasher>,
     /// get the package that will be linking to a native library by its links attribute
@@ -39,8 +39,9 @@ pub type ContextAge = usize;
 /// By storing this in a hash map we ensure that there is only one
 /// semver compatible version of each crate.
 /// This all so stores the `ContextAge`.
-pub type Activations =
+pub type ActivationsOld =
     im_rc::HashMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
+pub type Activations = HashMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
 
 pub fn reset_activations_to_age(activations: &mut Activations, age: ContextAge) {
     activations.retain(|_, (_, a)| *a <= age);
@@ -77,7 +78,10 @@ impl ResolverContext {
             self.activations_old.entry(id.as_activations_key()),
             activations.entry(id.as_activations_key()),
         ) {
-            (im_rc::hashmap::Entry::Occupied(o_old), im_rc::hashmap::Entry::Occupied(o)) => {
+            (
+                im_rc::hashmap::Entry::Occupied(o_old),
+                std::collections::hash_map::Entry::Occupied(o),
+            ) => {
                 assert_eq!(o_old.get(), o.get());
                 debug_assert_eq!(
                     &o.get().0,
@@ -85,7 +89,10 @@ impl ResolverContext {
                     "cargo does not allow two semver compatible versions"
                 );
             }
-            (im_rc::hashmap::Entry::Vacant(v_old), im_rc::hashmap::Entry::Vacant(v)) => {
+            (
+                im_rc::hashmap::Entry::Vacant(v_old),
+                std::collections::hash_map::Entry::Vacant(v),
+            ) => {
                 if let Some(link) = summary.links() {
                     if self.links.insert(link, id).is_some() {
                         return Err(format_err!(
