@@ -21,7 +21,7 @@ pub struct ResolverContext {
     /// list the features that are activated for each package
     pub resolve_features: im_rc::HashMap<PackageId, FeaturesSet, rustc_hash::FxBuildHasher>,
     /// get the package that will be linking to a native library by its links attribute
-    pub links: im_rc::HashMap<InternedString, PackageId, rustc_hash::FxBuildHasher>,
+    pub links_old: im_rc::HashMap<InternedString, PackageId, rustc_hash::FxBuildHasher>,
 
     /// a way to look up for a package in activations what packages required it
     /// and all of the exact deps that it fulfilled.
@@ -54,7 +54,7 @@ impl ResolverContext {
         ResolverContext {
             age: 0,
             resolve_features: im_rc::HashMap::default(),
-            links: im_rc::HashMap::default(),
+            links_old: im_rc::HashMap::default(),
             parents: Graph::new(),
         }
     }
@@ -85,7 +85,7 @@ impl ResolverContext {
             }
             Entry::Vacant(v) => {
                 if let Some(link) = summary.links() {
-                    if self.links.insert(link, id).is_some() {
+                    if self.links_old.insert(link, id).is_some() {
                         return Err(format_err!(
                             "Attempting to resolve a dependency with more than \
                                  one crate with links={}.\nThis will not build as \

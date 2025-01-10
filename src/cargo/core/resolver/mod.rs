@@ -807,7 +807,7 @@ impl RemainingCandidates {
             // `links` key. If this candidate links to something that's already
             // linked to by a different package then we've gotta skip this.
             if let Some(link) = b.links() {
-                if let Some(&a) = cx.links.get(&link) {
+                if let Some(&a) = cx.links_old.get(&link) {
                     if a != b_id {
                         conflicting_prev_active
                             .entry(a)
