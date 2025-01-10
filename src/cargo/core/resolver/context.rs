@@ -18,8 +18,6 @@ use tracing::debug;
 #[derive(Clone)]
 pub struct ResolverContext {
     pub age: ContextAge,
-    // TODO: jf: remove _old
-    pub activations_old: ActivationsOld,
     /// list the features that are activated for each package
     pub resolve_features: im_rc::HashMap<PackageId, FeaturesSet, rustc_hash::FxBuildHasher>,
     /// get the package that will be linking to a native library by its links attribute
@@ -41,8 +39,6 @@ pub type ContextAge = usize;
 /// By storing this in a hash map we ensure that there is only one
 /// semver compatible version of each crate.
 /// This all so stores the `ContextAge`.
-pub type ActivationsOld =
-    im_rc::HashMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
 pub type Activations = IndexMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
 
 pub fn reset_activations_to_age(activations: &mut Activations, age: ContextAge) {
@@ -60,7 +56,6 @@ impl ResolverContext {
             resolve_features: im_rc::HashMap::default(),
             links: im_rc::HashMap::default(),
             parents: Graph::new(),
-            activations_old: im_rc::HashMap::default(),
         }
     }
 
@@ -80,19 +75,15 @@ impl ResolverContext {
     ) -> ActivateResult<bool> {
         let id = summary.package_id();
         let age: ContextAge = self.age;
-        match (
-            self.activations_old.entry(id.as_activations_key()),
-            activations.entry(id.as_activations_key()),
-        ) {
-            (im_rc::hashmap::Entry::Occupied(o_old), Entry::Occupied(o)) => {
-                assert_eq!(o_old.get(), o.get());
+        match activations.entry(id.as_activations_key()) {
+            Entry::Occupied(o) => {
                 debug_assert_eq!(
                     &o.get().0,
                     summary,
                     "cargo does not allow two semver compatible versions"
                 );
             }
-            (im_rc::hashmap::Entry::Vacant(v_old), Entry::Vacant(v)) => {
+            Entry::Vacant(v) => {
                 if let Some(link) = summary.links() {
                     if self.links.insert(link, id).is_some() {
                         return Err(format_err!(
@@ -105,7 +96,6 @@ impl ResolverContext {
                     }
                 }
                 v.insert((summary.clone(), age));
-                v_old.insert((summary.clone(), age));
 
                 // If we've got a parent dependency which activated us, *and*
                 // the dependency has a different source id listed than the
@@ -126,11 +116,7 @@ impl ResolverContext {
                     if dep.source_id() != id.source_id() {
                         let key =
                             ActivationsKey::new(id.name(), id.version().into(), dep.source_id());
-                        let prev_old = self
-                            .activations_old
-                            .insert(key.clone(), (summary.clone(), age));
                         let prev = activations.insert(key, (summary.clone(), age));
-                        assert_eq!(prev_old, prev);
                         if let Some((previous_summary, _)) = prev {
                             return Err(
                                 (previous_summary.package_id(), ConflictReason::Semver).into()
@@ -140,9 +126,6 @@ impl ResolverContext {
                 }
 
                 return Ok(false);
-            }
-            _ => {
-                panic!()
             }
         }
 
@@ -178,15 +161,9 @@ impl ResolverContext {
 
     /// If the package is active returns the `ContextAge` when it was added
     pub fn is_active(&self, activations: &Activations, id: PackageId) -> Option<ContextAge> {
-        let old = self
-            .activations_old
+        activations
             .get(&id.as_activations_key())
-            .and_then(|(s, l)| if s.package_id() == id { Some(*l) } else { None });
-        let n = activations
-            .get(&id.as_activations_key())
-            .and_then(|(s, l)| if s.package_id() == id { Some(*l) } else { None });
-        assert_eq!(old, n);
-        old
+            .and_then(|(s, l)| if s.package_id() == id { Some(*l) } else { None })
     }
 
     /// Checks whether all of `parent` and the keys of `conflicting activations`

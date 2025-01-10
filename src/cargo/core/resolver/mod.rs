@@ -160,13 +160,9 @@ pub fn resolve(
     };
 
     let mut cksums = HashMap::new();
-    for (summary, _) in resolver_ctx.activations_old.values() {
+    for (summary, _) in activations.values() {
         let cksum = summary.checksum().map(|s| s.to_string());
         cksums.insert(summary.package_id(), cksum);
-    }
-    assert_eq!(resolver_ctx.activations_old.len(), activations.len()); // check now that we are done
-    for k in activations.keys() {
-        assert_eq!(resolver_ctx.activations_old.get(k), activations.get(k));
     }
     let graph = resolver_ctx.graph(&activations);
     let replacements = resolver_ctx.resolve_replacements(&activations, &registry);
@@ -175,8 +171,7 @@ pub fn resolve(
         .iter()
         .map(|(k, v)| (*k, v.iter().cloned().collect()))
         .collect();
-    let summaries = resolver_ctx
-        .activations_old
+    let summaries = activations
         .into_iter()
         .map(|(_key, (summary, _age))| (summary.package_id(), summary))
         .collect();
@@ -233,10 +228,6 @@ fn activate_deps_loop(
             Err(ActivateError::Fatal(e)) => return Err(e),
             Err(ActivateError::Conflict(_, _)) => panic!("bad error from activate"),
         }
-    }
-    assert_eq!(resolver_ctx.activations_old.len(), activations.len()); // check that things are set up
-    for k in activations.keys() {
-        assert_eq!(resolver_ctx.activations_old.get(k), activations.get(k));
     }
 
     let mut printed = ResolverProgress::new();
@@ -360,10 +351,6 @@ fn activate_deps_loop(
                         // contents of `frame` to complete our backtrack.
                         resolver_ctx = frame.context;
                         reset_activations_to_age(&mut activations, resolver_ctx.age);
-                        assert_eq!(resolver_ctx.activations_old.len(), activations.len()); // check that backtracking
-                        for k in activations.keys() {
-                            assert_eq!(resolver_ctx.activations_old.get(k), activations.get(k));
-                        }
                         remaining_deps = frame.remaining_deps;
                         remaining_candidates = frame.remaining_candidates;
                         parent = frame.parent;
@@ -440,17 +427,10 @@ fn activate_deps_loop(
                 &mut activations,
                 registry,
                 Some((&parent, &dep)),
-                candidate.clone(), // TODO: jf: remove clone
+                candidate,
                 first_version,
                 &opts,
             );
-
-            assert_eq!(
-                resolver_ctx
-                    .activations_old
-                    .get(&candidate.package_id().as_activations_key()),
-                activations.get(&candidate.package_id().as_activations_key())
-            ); // check after activate
 
             let successfully_activated = match res {
                 // Success! We've now activated our `candidate` in our context
@@ -648,10 +628,6 @@ fn activate_deps_loop(
             if let Some(b) = backtrack {
                 resolver_ctx = b.context;
                 reset_activations_to_age(&mut activations, resolver_ctx.age);
-                assert_eq!(resolver_ctx.activations_old.len(), activations.len()); // check that backtracking
-                for k in activations.keys() {
-                    assert_eq!(resolver_ctx.activations_old.get(k), activations.get(k));
-                }
             }
         }
 
@@ -816,13 +792,6 @@ impl RemainingCandidates {
             //
             // Here we throw out our candidate if it's *compatible*, yet not
             // equal, to all previously activated versions.
-            assert_eq!(
-                activations
-                    .get(&b_id.as_activations_key())
-                    .filter(|(_, age)| age <= &cx.age)
-                    .is_some(),
-                cx.activations_old.get(&b_id.as_activations_key()).is_some()
-            );
             if let Some((a, _)) = activations
                 .get(&b_id.as_activations_key())
                 .filter(|(_, age)| age <= &cx.age)
