@@ -207,6 +207,7 @@ fn activate_deps_loop(
     let mut backtrack_stack = Vec::new();
     let mut remaining_deps = RemainingDeps::new();
     let mut activations = Activations::default();
+    // get the package that will be linking to a native library by its links attribute
     let mut links = LinksMap::default();
 
     // Activate all the initial summaries to kick off some work.
@@ -354,7 +355,6 @@ fn activate_deps_loop(
                         resolver_ctx = frame.context;
                         reset_activations_to_age(&mut activations, resolver_ctx.age);
                         reset_links_to_age(&mut links, resolver_ctx.age);
-                        assert_eq!(resolver_ctx.links_old.len(), links.len());
                         remaining_deps = frame.remaining_deps;
                         remaining_candidates = frame.remaining_candidates;
                         parent = frame.parent;
@@ -635,7 +635,6 @@ fn activate_deps_loop(
                 resolver_ctx = b.context;
                 reset_activations_to_age(&mut activations, resolver_ctx.age);
                 reset_links_to_age(&mut links, resolver_ctx.age);
-                assert_eq!(resolver_ctx.links_old.len(), links.len());
             }
         }
 
@@ -819,10 +818,6 @@ impl RemainingCandidates {
             // `links` key. If this candidate links to something that's already
             // linked to by a different package then we've gotta skip this.
             if let Some(link) = b.links() {
-                assert_eq!(
-                    cx.links_old.get(&link).is_some(),
-                    links.get(&link).filter(|(_, age)| age <= &cx.age).is_some()
-                );
                 if let Some(&(a, _)) = links.get(&link).filter(|(_, age)| age <= &cx.age) {
                     if a != b_id {
                         conflicting_prev_active

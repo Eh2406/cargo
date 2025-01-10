@@ -20,9 +20,6 @@ pub struct ResolverContext {
     pub age: ContextAge,
     /// list the features that are activated for each package
     pub resolve_features: im_rc::HashMap<PackageId, FeaturesSet, rustc_hash::FxBuildHasher>,
-    /// get the package that will be linking to a native library by its links attribute
-    pub links_old: im_rc::HashMap<InternedString, PackageId, rustc_hash::FxBuildHasher>,
-
     /// a way to look up for a package in activations what packages required it
     /// and all of the exact deps that it fulfilled.
     pub parents: Graph<PackageId, im_rc::HashSet<Dependency, rustc_hash::FxBuildHasher>>,
@@ -46,17 +43,17 @@ pub type LinksMap = IndexMap<InternedString, (PackageId, ContextAge), rustc_hash
 pub fn reset_activations_to_age(activations: &mut Activations, age: ContextAge) {
     // activations.retain(|_, (_, a)| *a <= age);
     let pp = activations.partition_point(|_, (_, a)| *a <= age);
-    assert!(activations[pp..].iter().all(|(_, (_, a))| *a > age));
+    debug_assert!(activations[pp..].iter().all(|(_, (_, a))| *a > age));
     activations.truncate(pp);
-    assert!(activations.iter().all(|(_, (_, a))| *a <= age));
+    debug_assert!(activations.iter().all(|(_, (_, a))| *a <= age));
 }
 
 pub fn reset_links_to_age(links: &mut LinksMap, age: ContextAge) {
     // links.retain(|_, (_, a)| *a <= age);
     let pp = links.partition_point(|_, (_, a)| *a <= age);
-    assert!(links[pp..].iter().all(|(_, (_, a))| *a > age));
+    debug_assert!(links[pp..].iter().all(|(_, (_, a))| *a > age));
     links.truncate(pp);
-    assert!(links.iter().all(|(_, (_, a))| *a <= age));
+    debug_assert!(links.iter().all(|(_, (_, a))| *a <= age));
 }
 
 impl ResolverContext {
@@ -64,7 +61,6 @@ impl ResolverContext {
         ResolverContext {
             age: 0,
             resolve_features: im_rc::HashMap::default(),
-            links_old: im_rc::HashMap::default(),
             parents: Graph::new(),
         }
     }
@@ -96,9 +92,7 @@ impl ResolverContext {
             }
             Entry::Vacant(v) => {
                 if let Some(link) = summary.links() {
-                    let l = links.insert(link, (id, age));
-                    assert_eq!(self.links_old.insert(link, id).is_some(), l.is_some());
-                    if l.is_some() {
+                    if links.insert(link, (id, age)).is_some() {
                         return Err(format_err!(
                             "Attempting to resolve a dependency with more than \
                                  one crate with links={}.\nThis will not build as \
