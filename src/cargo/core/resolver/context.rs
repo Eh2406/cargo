@@ -41,6 +41,8 @@ pub type ContextAge = usize;
 /// This all so stores the `ContextAge`.
 pub type Activations = IndexMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
 
+pub type LinksMap = im_rc::HashMap<InternedString, PackageId, rustc_hash::FxBuildHasher>;
+
 pub fn reset_activations_to_age(activations: &mut Activations, age: ContextAge) {
     // activations.retain(|_, (_, a)| *a <= age);
     let pp = activations.partition_point(|_, (_, a)| *a <= age);
@@ -69,6 +71,7 @@ impl ResolverContext {
     pub fn flag_activated(
         &mut self,
         activations: &mut Activations,
+        links: &mut LinksMap,
         summary: &Summary,
         opts: &ResolveOpts,
         parent: Option<(&Summary, &Dependency)>,
@@ -85,7 +88,9 @@ impl ResolverContext {
             }
             Entry::Vacant(v) => {
                 if let Some(link) = summary.links() {
-                    if self.links_old.insert(link, id).is_some() {
+                    let l = links.insert(link, id);
+                    assert_eq!(self.links_old.insert(link, id), l);
+                    if l.is_some() {
                         return Err(format_err!(
                             "Attempting to resolve a dependency with more than \
                                  one crate with links={}.\nThis will not build as \

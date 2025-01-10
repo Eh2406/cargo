@@ -62,7 +62,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use context::{reset_activations_to_age, Activations};
+use context::{reset_activations_to_age, Activations, LinksMap};
 use tracing::{debug, trace};
 
 use crate::core::PackageIdSpec;
@@ -207,6 +207,7 @@ fn activate_deps_loop(
     let mut backtrack_stack = Vec::new();
     let mut remaining_deps = RemainingDeps::new();
     let mut activations = Activations::default();
+    let mut links = LinksMap::default();
 
     // Activate all the initial summaries to kick off some work.
     for (summary, opts) in summaries {
@@ -214,6 +215,7 @@ fn activate_deps_loop(
         let res = activate(
             &mut resolver_ctx,
             &mut activations,
+            &mut links,
             registry,
             None,
             summary.clone(),
@@ -288,6 +290,7 @@ fn activate_deps_loop(
                 &mut conflicting_activations,
                 &resolver_ctx,
                 &activations,
+                &links,
             );
 
             let (candidate, has_another) = next.ok_or(()).or_else(|_| {
@@ -337,6 +340,7 @@ fn activate_deps_loop(
                 match find_candidate(
                     &resolver_ctx,
                     &activations,
+                    &links,
                     &mut backtrack_stack,
                     &parent,
                     backtracked,
@@ -423,6 +427,7 @@ fn activate_deps_loop(
             let res = activate(
                 &mut resolver_ctx,
                 &mut activations,
+                &mut links,
                 registry,
                 Some((&parent, &dep)),
                 candidate,
@@ -548,6 +553,7 @@ fn activate_deps_loop(
                             find_candidate(
                                 &resolver_ctx,
                                 &activations,
+                                &links,
                                 &mut backtrack_stack.clone(),
                                 &parent,
                                 backtracked,
@@ -647,6 +653,7 @@ fn activate_deps_loop(
 fn activate(
     cx: &mut ResolverContext,
     activations: &mut Activations,
+    links: &mut LinksMap,
     registry: &mut RegistryQueryer<'_>,
     parent: Option<(&Summary, &Dependency)>,
     candidate: Summary,
@@ -664,7 +671,7 @@ fn activate(
             .insert(dep.clone());
     }
 
-    let activated = cx.flag_activated(activations, &candidate, opts, parent)?;
+    let activated = cx.flag_activated(activations, links, &candidate, opts, parent)?;
 
     let candidate = match registry.replacement_summary(candidate_pid) {
         Some(replace) => {
@@ -673,7 +680,7 @@ fn activate(
             // does. TBH it basically cause panics in the test suite if
             // `parent` is passed through here and `[replace]` is otherwise
             // on life support so it's not critical to fix bugs anyway per se.
-            if cx.flag_activated(activations, replace, opts, None)? && activated {
+            if cx.flag_activated(activations, links, replace, opts, None)? && activated {
                 return Ok(None);
             }
             trace!(
@@ -778,6 +785,7 @@ impl RemainingCandidates {
         conflicting_prev_active: &mut ConflictMap,
         cx: &ResolverContext,
         activations: &Activations,
+        links: &LinksMap,
     ) -> Option<(Summary, bool)> {
         for b in self.remaining.iter() {
             let b_id = b.package_id();
@@ -807,7 +815,8 @@ impl RemainingCandidates {
             // `links` key. If this candidate links to something that's already
             // linked to by a different package then we've gotta skip this.
             if let Some(link) = b.links() {
-                if let Some(&a) = cx.links_old.get(&link) {
+                assert_eq!(cx.links_old.get(&link), links.get(&link));
+                if let Some(&a) = links.get(&link) {
                     if a != b_id {
                         conflicting_prev_active
                             .entry(a)
@@ -972,6 +981,7 @@ fn shortcircuit_max<I: Ord>(iter: impl Iterator<Item = Option<I>>) -> Option<I> 
 fn find_candidate(
     cx: &ResolverContext,
     activations: &Activations,
+    links: &LinksMap,
     backtrack_stack: &mut Vec<BacktrackFrame>,
     parent: &Summary,
     backtracked: bool,
@@ -1004,6 +1014,7 @@ fn find_candidate(
             &mut frame.conflicting_activations,
             &frame.context,
             &activations,
+            &links,
         );
         let Some((candidate, has_another)) = next else {
             continue;
