@@ -63,7 +63,9 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use context::ContextAge;
 use tracing::{debug, trace};
+use types::ActivationsKey;
 
 use crate::core::PackageIdSpec;
 use crate::core::{Dependency, PackageId, Registry, Summary};
@@ -159,7 +161,7 @@ pub fn resolve(
     };
 
     let mut cksums = HashMap::new();
-    for (summary, _) in resolver_ctx.activations.values() {
+    for (summary, _) in resolver_ctx.activations_old.values() {
         let cksum = summary.checksum().map(|s| s.to_string());
         cksums.insert(summary.package_id(), cksum);
     }
@@ -171,7 +173,7 @@ pub fn resolve(
         .map(|(k, v)| (*k, v.iter().cloned().collect()))
         .collect();
     let summaries = resolver_ctx
-        .activations
+        .activations_old
         .into_iter()
         .map(|(_key, (summary, _age))| (summary.package_id(), summary))
         .collect();
@@ -759,7 +761,26 @@ impl RemainingCandidates {
     ) -> Option<(Summary, bool)> {
         for b in self.remaining.iter() {
             let b_id = b.package_id();
-            // The `links` key in the manifest dictates that there's only one
+
+            // The condition for being a valid candidate relies on
+            // semver. Cargo dictates that you can't duplicate multiple
+            // semver-compatible versions of a crate. For example we can't
+            // simultaneously activate `foo 1.0.2` and `foo 1.2.0`. We can,
+            // however, activate `1.0.2` and `2.0.0`.
+            //
+            // Here we throw out our candidate if it's *compatible*, yet not
+            // equal, to all previously activated versions.
+            // TODO: jf: remove _old
+            if let Some((a, _)) = cx.activations_old.get(&b_id.as_activations_key()) {
+                if a != b {
+                    conflicting_prev_active
+                        .entry(a.package_id())
+                        .or_insert(ConflictReason::Semver);
+                    continue;
+                }
+            }
+
+            // Otherwise the `links` key in the manifest dictates that there's only one
             // package in a dependency graph, globally, with that particular
             // `links` key. If this candidate links to something that's already
             // linked to by a different package then we've gotta skip this.
@@ -774,29 +795,12 @@ impl RemainingCandidates {
                 }
             }
 
-            // Otherwise the condition for being a valid candidate relies on
-            // semver. Cargo dictates that you can't duplicate multiple
-            // semver-compatible versions of a crate. For example we can't
-            // simultaneously activate `foo 1.0.2` and `foo 1.2.0`. We can,
-            // however, activate `1.0.2` and `2.0.0`.
-            //
-            // Here we throw out our candidate if it's *compatible*, yet not
-            // equal, to all previously activated versions.
-            if let Some((a, _)) = cx.activations.get(&b_id.as_activations_key()) {
-                if a != b {
-                    conflicting_prev_active
-                        .entry(a.package_id())
-                        .or_insert(ConflictReason::Semver);
-                    continue;
-                }
-            }
-
             // Well if we made it this far then we've got a valid dependency. We
             // want this iterator to be inherently "peekable" so we don't
             // necessarily return the item just yet. Instead we stash it away to
             // get returned later, and if we replaced something then that was
             // actually the candidate to try first so we return that.
-            if let Some(r) = mem::replace(&mut self.has_another, Some(b.clone())) {
+            if let Some(r) = self.has_another.replace(b.clone()) {
                 return Some((r, true));
             }
         }

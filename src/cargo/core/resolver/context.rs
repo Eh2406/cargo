@@ -16,7 +16,7 @@ use tracing::debug;
 #[derive(Clone)]
 pub struct ResolverContext {
     pub age: ContextAge,
-    pub activations: Activations,
+    pub activations_old: Activations,
     /// list the features that are activated for each package
     pub resolve_features: im_rc::HashMap<PackageId, FeaturesSet, rustc_hash::FxBuildHasher>,
     /// get the package that will be linking to a native library by its links attribute
@@ -48,7 +48,7 @@ impl ResolverContext {
             resolve_features: im_rc::HashMap::default(),
             links: im_rc::HashMap::default(),
             parents: Graph::new(),
-            activations: im_rc::HashMap::default(),
+            activations_old: im_rc::HashMap::default(),
         }
     }
 
@@ -67,7 +67,8 @@ impl ResolverContext {
     ) -> ActivateResult<bool> {
         let id = summary.package_id();
         let age: ContextAge = self.age;
-        match self.activations.entry(id.as_activations_key()) {
+        // TODO: jf: remove _old
+        match self.activations_old.entry(id.as_activations_key()) {
             im_rc::hashmap::Entry::Occupied(o) => {
                 debug_assert_eq!(
                     &o.get().0,
@@ -108,7 +109,8 @@ impl ResolverContext {
                     if dep.source_id() != id.source_id() {
                         let key =
                             ActivationsKey::new(id.name(), id.version().into(), dep.source_id());
-                        let prev = self.activations.insert(key, (summary.clone(), age));
+                        // TODO: jf: remove _old
+                        let prev = self.activations_old.insert(key, (summary.clone(), age));
                         if let Some((previous_summary, _)) = prev {
                             return Err(
                                 (previous_summary.package_id(), ConflictReason::Semver).into()
@@ -151,7 +153,8 @@ impl ResolverContext {
 
     /// If the package is active returns the `ContextAge` when it was added
     pub fn is_active(&self, id: PackageId) -> Option<ContextAge> {
-        self.activations
+        // TODO: jf: remove _old
+        self.activations_old
             .get(&id.as_activations_key())
             .and_then(|(s, l)| if s.package_id() == id { Some(*l) } else { None })
     }
@@ -179,7 +182,8 @@ impl ResolverContext {
         &self,
         registry: &RegistryQueryer<'_>,
     ) -> HashMap<PackageId, PackageId> {
-        self.activations
+        // TODO: jf: remove _old
+        self.activations_old
             .values()
             .filter_map(|(s, _)| registry.used_replacement_for(s.package_id()))
             .collect()
@@ -187,7 +191,8 @@ impl ResolverContext {
 
     pub fn graph(&self) -> Graph<PackageId, std::collections::HashSet<Dependency>> {
         let mut graph: Graph<PackageId, std::collections::HashSet<Dependency>> = Graph::new();
-        self.activations
+        // TODO: jf: remove _old
+        self.activations_old
             .values()
             .for_each(|(r, _)| graph.add(r.package_id()));
         for i in self.parents.iter() {
