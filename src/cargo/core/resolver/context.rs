@@ -41,7 +41,7 @@ pub type ContextAge = usize;
 /// This all so stores the `ContextAge`.
 pub type Activations = IndexMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
 
-pub type LinksMap = HashMap<InternedString, (PackageId, ContextAge), rustc_hash::FxBuildHasher>;
+pub type LinksMap = IndexMap<InternedString, (PackageId, ContextAge), rustc_hash::FxBuildHasher>;
 
 pub fn reset_activations_to_age(activations: &mut Activations, age: ContextAge) {
     // activations.retain(|_, (_, a)| *a <= age);
@@ -52,7 +52,11 @@ pub fn reset_activations_to_age(activations: &mut Activations, age: ContextAge) 
 }
 
 pub fn reset_links_to_age(links: &mut LinksMap, age: ContextAge) {
-    links.retain(|_, (_, a)| *a <= age);
+    // links.retain(|_, (_, a)| *a <= age);
+    let pp = links.partition_point(|_, (_, a)| *a <= age);
+    assert!(links[pp..].iter().all(|(_, (_, a))| *a > age));
+    links.truncate(pp);
+    assert!(links.iter().all(|(_, (_, a))| *a <= age));
 }
 
 impl ResolverContext {
