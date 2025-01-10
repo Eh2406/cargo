@@ -6,6 +6,8 @@ use crate::core::{Dependency, PackageId, Summary};
 use crate::util::interning::{InternedString, INTERNED_DEFAULT};
 use crate::util::Graph;
 use anyhow::format_err;
+use indexmap::map::Entry;
+use indexmap::IndexMap;
 use std::collections::{BTreeSet, HashMap};
 use tracing::debug;
 
@@ -41,10 +43,14 @@ pub type ContextAge = usize;
 /// This all so stores the `ContextAge`.
 pub type ActivationsOld =
     im_rc::HashMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
-pub type Activations = HashMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
+pub type Activations = IndexMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
 
 pub fn reset_activations_to_age(activations: &mut Activations, age: ContextAge) {
-    activations.retain(|_, (_, a)| *a <= age);
+    // activations.retain(|_, (_, a)| *a <= age);
+    let pp = activations.partition_point(|_, (_, a)| *a <= age);
+    assert!(activations[pp..].iter().all(|(_, (_, a))| *a > age));
+    activations.truncate(pp);
+    assert!(activations.iter().all(|(_, (_, a))| *a <= age));
 }
 
 impl ResolverContext {
@@ -78,10 +84,7 @@ impl ResolverContext {
             self.activations_old.entry(id.as_activations_key()),
             activations.entry(id.as_activations_key()),
         ) {
-            (
-                im_rc::hashmap::Entry::Occupied(o_old),
-                std::collections::hash_map::Entry::Occupied(o),
-            ) => {
+            (im_rc::hashmap::Entry::Occupied(o_old), Entry::Occupied(o)) => {
                 assert_eq!(o_old.get(), o.get());
                 debug_assert_eq!(
                     &o.get().0,
@@ -89,10 +92,7 @@ impl ResolverContext {
                     "cargo does not allow two semver compatible versions"
                 );
             }
-            (
-                im_rc::hashmap::Entry::Vacant(v_old),
-                std::collections::hash_map::Entry::Vacant(v),
-            ) => {
+            (im_rc::hashmap::Entry::Vacant(v_old), Entry::Vacant(v)) => {
                 if let Some(link) = summary.links() {
                     if self.links.insert(link, id).is_some() {
                         return Err(format_err!(
