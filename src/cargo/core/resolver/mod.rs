@@ -62,7 +62,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use context::{reset_activations_to_age, Activations, LinksMap};
+use context::{reset_activations_to_age, reset_links_to_age, Activations, LinksMap};
 use tracing::{debug, trace};
 
 use crate::core::PackageIdSpec;
@@ -353,6 +353,8 @@ fn activate_deps_loop(
                         // contents of `frame` to complete our backtrack.
                         resolver_ctx = frame.context;
                         reset_activations_to_age(&mut activations, resolver_ctx.age);
+                        reset_links_to_age(&mut links, resolver_ctx.age);
+                        assert_eq!(resolver_ctx.links_old.len(), links.len());
                         remaining_deps = frame.remaining_deps;
                         remaining_candidates = frame.remaining_candidates;
                         parent = frame.parent;
@@ -632,6 +634,8 @@ fn activate_deps_loop(
             if let Some(b) = backtrack {
                 resolver_ctx = b.context;
                 reset_activations_to_age(&mut activations, resolver_ctx.age);
+                reset_links_to_age(&mut links, resolver_ctx.age);
+                assert_eq!(resolver_ctx.links_old.len(), links.len());
             }
         }
 
@@ -815,8 +819,11 @@ impl RemainingCandidates {
             // `links` key. If this candidate links to something that's already
             // linked to by a different package then we've gotta skip this.
             if let Some(link) = b.links() {
-                assert_eq!(cx.links_old.get(&link), links.get(&link));
-                if let Some(&a) = links.get(&link) {
+                assert_eq!(
+                    cx.links_old.get(&link).is_some(),
+                    links.get(&link).filter(|(_, age)| age <= &cx.age).is_some()
+                );
+                if let Some(&(a, _)) = links.get(&link).filter(|(_, age)| age <= &cx.age) {
                     if a != b_id {
                         conflicting_prev_active
                             .entry(a)

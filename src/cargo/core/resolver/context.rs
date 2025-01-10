@@ -41,7 +41,8 @@ pub type ContextAge = usize;
 /// This all so stores the `ContextAge`.
 pub type Activations = IndexMap<ActivationsKey, (Summary, ContextAge), rustc_hash::FxBuildHasher>;
 
-pub type LinksMap = im_rc::HashMap<InternedString, PackageId, rustc_hash::FxBuildHasher>;
+pub type LinksMap =
+    im_rc::HashMap<InternedString, (PackageId, ContextAge), rustc_hash::FxBuildHasher>;
 
 pub fn reset_activations_to_age(activations: &mut Activations, age: ContextAge) {
     // activations.retain(|_, (_, a)| *a <= age);
@@ -49,6 +50,10 @@ pub fn reset_activations_to_age(activations: &mut Activations, age: ContextAge) 
     assert!(activations[pp..].iter().all(|(_, (_, a))| *a > age));
     activations.truncate(pp);
     assert!(activations.iter().all(|(_, (_, a))| *a <= age));
+}
+
+pub fn reset_links_to_age(links: &mut LinksMap, age: ContextAge) {
+    links.retain(|_, (_, a)| *a <= age);
 }
 
 impl ResolverContext {
@@ -88,8 +93,8 @@ impl ResolverContext {
             }
             Entry::Vacant(v) => {
                 if let Some(link) = summary.links() {
-                    let l = links.insert(link, id);
-                    assert_eq!(self.links_old.insert(link, id), l);
+                    let l = links.insert(link, (id, age));
+                    assert_eq!(self.links_old.insert(link, id).is_some(), l.is_some());
                     if l.is_some() {
                         return Err(format_err!(
                             "Attempting to resolve a dependency with more than \
